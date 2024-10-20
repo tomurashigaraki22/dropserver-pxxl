@@ -27,7 +27,7 @@ app.config["MAIL_DEFAULT_SENDER"] = os.getenv("MAIL_DEFAULT_SENDER")  # Default 
 
 
 
-socketio = SocketIO(app)
+socketio = SocketIO(app, max_http_buffer_size=10**7, ping_timeout=5)  # Adjust the buffer size as needed
 db = SQLAlchemy(app)
 mysql = MySQL(app)
 mail = Mail(app)

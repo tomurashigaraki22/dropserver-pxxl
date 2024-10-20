@@ -19,11 +19,12 @@ def find_closest_rider(user_location, available_riders):
     min_distance = float('inf')
 
     for rider in available_riders:
-        rider_location = (rider['latitude'], rider['longitude'])
-        distance = haversine((user_location['latitude'], user_location['longitude']), rider_location)
+        if(rider['user_type'] == 'driver'):
+            rider_location = (rider['latitude'], rider['longitude'])
+            distance = haversine((user_location['latitude'], user_location['longitude']), rider_location)
 
-        if distance < min_distance:
-            min_distance = distance
-            closest_rider = rider
+            if distance < min_distance:
+                min_distance = distance
+                closest_rider = rider
 
     return closest_rider

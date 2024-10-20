@@ -2,8 +2,9 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_socketio import emit, join_room, leave_room, SocketIO
 from extensions.extensions import get_db_connection, socketio, app, mysql
 from extensions.db_schemas import database_schemas
-from functions.auth import userSignup, login, verifyEmail, changePassword, get_balance, add_to_balance
+from functions.auth import userSignup, login, verifyEmail, changePassword, get_balance, add_to_balance, driverLogin, driverSignup, checkVerificationStatus, uploadVerificationImages, saveLinksToDB
 from functions.riders import haversine, find_closest_rider
+import re
 
 ###testing purposes###
 
@@ -16,21 +17,25 @@ def get_tables():
     cur.close()
     return jsonify(tables)
 
-@app.route("/alter-table", methods=["GET", "POST"])
-def alterTable():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # Alter the password column to increase its size to VARCHAR(255)
-    cur.execute("""
-        ALTER TABLE userauth
-            ADD COLUMN balance INT NOT NULL DEFAULT 0
-    """)
-    
-    cur.close()
-    conn.commit()
-    conn.close()
-    return jsonify({"Message": "Done"})
+@app.route("/alter-table/<email>/<status>", methods=["GET"])
+def alterTable(email, status):
+    try:
+        if not status:
+            return jsonify({"Message": "Status value is required"}), 400
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Update the status column for the specified email
+        cur.execute("""
+            UPDATE verificationdetails SET status = %s WHERE email = %s
+        """, (status, email))  # Update with the new status
+        
+        conn.commit()  # Commit the changes to the database
+        return jsonify({"Message": "Status updated successfully"}), 200
+
+    except Exception as e:
+        return jsonify({"Message": f"An error occurred: {str(e)}"}), 500
 
 
 @app.route('/describe/<table_name>', methods=['GET'])
@@ -97,6 +102,22 @@ def getBalance():
 @app.route("/add_to_balance", methods=["GET", "POST"])
 def addBalance():
     return add_to_balance()
+
+@app.route("/driverLogin", methods=["GET", "POST"])
+def driverLogins():
+    return driverLogin()
+
+@app.route("/driverSignup", methods=["GET", "POST"])
+def driverSignups():
+    return driverSignup()
+
+@app.route("/checkVerificationStatus", methods=["GET", "POSt"])
+def getStatus():
+    return checkVerificationStatus()
+
+@app.route("/uploadImages", methods=["GET", "POST"])
+def uploadImages():
+    return uploadVerificationImages()
     
 
 connected_users = {}
@@ -146,12 +167,31 @@ def handle_disconnect():
     # Find and remove the user by socket ID from the connected_users dictionary
     for email, sid in list(connected_users.items()):
         if sid == request.sid:
+            # Remove user from connected_users
             del connected_users[email]
             print(f'User {email} disconnected')
+
+            # Remove the user's location from the database
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute("DELETE FROM location WHERE email = %s", (email,))
+                conn.commit()
+                print(f'Location for {email} has been removed from the database')
+            except Exception as e:
+                print(f"Error removing location for {email}: {str(e)}")
+
             break
 
-    print('Client disconnected:', request.sid)
+    print('Client disconnected and removed from locations:', request.sid)
 
+@socketio.on("Nothing")
+def nothingSUp():
+    try:
+        print(f"Hello World it's me")
+    except Exception as e:
+        print(f"Error updating location: {str(e)}")
+        emit('update_error', {'status': 500, 'message': 'Internal Server Error', 'error': str(e)})
 
 @socketio.on('update_location')
 def update_location(data):
@@ -160,6 +200,7 @@ def update_location(data):
         email = data.get('email')
         longitude = data.get('longitude')
         latitude = data.get('latitude')
+        user_type = data.get("type")
 
         if not email or not longitude or not latitude:
             emit('update_error', {'status': 400, 'message': 'Missing required parameters'})
@@ -167,12 +208,12 @@ def update_location(data):
 
         # Establish a connection to the database
         conn = get_db_connection()
-        print(f"Email: {email} Longitude: {longitude} Latitude: {latitude}")
         cur = conn.cursor()
 
         # Check if the email exists in the location table
         cur.execute("SELECT COUNT(*) FROM location WHERE email = %s", (email,))
         count = cur.fetchone()[0]
+        print(f"Email: {email}, Location: {latitude} : {longitude}, UserType: {user_type}")
 
         if count > 0:
             # Update the existing location details for the provided email
@@ -183,10 +224,16 @@ def update_location(data):
             """, (longitude, latitude, email))
         else:
             # Insert a new record for the email if it doesn't exist
-            cur.execute("""
-                INSERT INTO location (email, longitude, latitude, user_type) 
-                VALUES (%s, %s, %s, %s)
-            """, (email, longitude, latitude, "user"))
+            if user_type:
+                cur.execute("""
+                    INSERT INTO location (email, longitude, latitude, user_type) 
+                    VALUES (%s, %s, %s, %s)
+                """, (email, longitude, latitude, user_type))
+            else:
+                cur.execute("""
+                    INSERT INTO location (email, longitude, latitude, user_type) 
+                    VALUES (%s, %s, %s, %s)
+                """, (email, longitude, latitude, "user"))
 
         # Commit the changes to the database
         conn.commit()
@@ -301,6 +348,29 @@ def book_ride(data):
             print('Rider not found')
     else:
         emit('ride_request_error', {'status': 404, 'message': 'No suitable rider found'})
+
+
+# Function to extract username from email
+def extract_username(email):
+    return re.split(r'@', email)[0]
+
+
+@socketio.on('accept_ride')
+def handle_accept_ride(data):
+    user_email = data.get('user_email')
+    driver_email = data.get('driver_email')
+
+    # Generate the ride ID (room name)
+    ride_id = f"{extract_username(driver_email)}{extract_username(user_email)}"
+    
+    # Join both the driver and the user to the room
+    join_room(ride_id)
+
+    # Notify both participants they've joined the room
+    emit('joined_ride_room', {'ride_id': ride_id, 'message': f"Joined ride room {ride_id}"}, room=ride_id)
+
+    print(f"Driver {driver_email} and User {user_email} joined room {ride_id}")
+
 
 
 if __name__ == '__main__':
