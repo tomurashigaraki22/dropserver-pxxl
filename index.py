@@ -168,12 +168,13 @@ def nothingSUp():
 @socketio.on('update_location')
 def update_location(data):
     try:
-        print(f"Updating Location For {data.get("type")} {data.get("email")}")
         # Extract details from the received data
         email = data.get('email')
         longitude = data.get('longitude')
         latitude = data.get('latitude')
         user_type = data.get("type")
+        print(f"Updating Location For {user_type} {email}")
+
 
         if not email or not longitude or not latitude:
             emit('update_error', {'status': 400, 'message': 'Missing required parameters'})
