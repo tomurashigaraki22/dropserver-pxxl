@@ -5,10 +5,8 @@ from flask import Flask, jsonify, request
 from flask_socketio import SocketIO, emit
 from flask_mail import Mail, Message
 from flask_sqlalchemy import SQLAlchemy
-from dotenv import load_dotenv
 from flask_cors import CORS
 from flask_mysqldb import MySQL
-
 
 load_dotenv()
 app = Flask(__name__)
@@ -24,16 +22,12 @@ app.config["MAIL_USERNAME"] = "noreply.dropapp@gmail.com"  # Your email username
 app.config["MAIL_PASSWORD"] = "iaik logl kifo tzzw"  # Your email password
 app.config["MAIL_DEFAULT_SENDER"] = os.getenv("MAIL_DEFAULT_SENDER")  # Default sender email address
 
-
-
-
-socketio = SocketIO(app, max_http_buffer_size=10**7, ping_timeout=5)  # Adjust the buffer size as needed
+# Initialize SocketIO with Eventlet
+socketio = SocketIO(app, max_http_buffer_size=10**7, async_mode='gevent')  # Use Eventlet as async mode
 db = SQLAlchemy(app)
 mysql = MySQL(app)
 mail = Mail(app)
 CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
-
-
 
 def get_db_connection():
     connection = pymysql.connect(
@@ -45,3 +39,4 @@ def get_db_connection():
         ssl={'ssl': {'ssl-mode': os.getenv('DB_SSL_MODE')}}
     )
     return connection
+

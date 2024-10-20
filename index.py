@@ -127,51 +127,26 @@ connected_users = {}
 def handle_connect():
     print('Client connected:', request.sid)
 
-# Register user with their email after they connect
 @socketio.on('register_user')
 def handle_register_user(data):
     email = data['email']
-    connected_users[email] = request.sid  # Map email to socket ID
-    print(f'User {email} connected with Socket ID {request.sid}')
-    emit('response', {'data': f'User {email} registered successfully'})
+    if email:
+        if email not in connected_users:
+            connected_users[email] = set()  # Initialize a set for multiple connections
+        connected_users[email].add(request.sid)  # Add current socket ID to user's set
+        print(f'User {email} connected with Socket ID {request.sid}')
+        emit('connected', {'message': f'Connected as {email}'})  # Confirm connection
 
-# Event handler for joining a room (e.g., ride room)
-@socketio.on('join_ride_room')
-def handle_join_ride_room(data):
-    ride_id = data['ride_id']
-    email = data['email']
-    
-    if email in connected_users:
-        join_room(ride_id)  # User joins the ride room
-        print(f'User {email} joined room {ride_id}')
-        emit('response', {'data': f'{email} joined room {ride_id}'}, room=ride_id)
-    else:
-        emit('response', {'data': 'User not found'}, to=request.sid)
-
-# Event handler for leaving a room
-@socketio.on('leave_ride_room')
-def handle_leave_ride_room(data):
-    ride_id = data['ride_id']
-    email = data['email']
-    
-    if email in connected_users:
-        leave_room(ride_id)  # User leaves the ride room
-        print(f'User {email} left room {ride_id}')
-        emit('response', {'data': f'{email} left room {ride_id}'}, room=ride_id)
-    else:
-        emit('response', {'data': 'User not found'}, to=request.sid)
-
-# Event handler for when a user disconnects
 @socketio.on('disconnect')
 def handle_disconnect():
-    # Find and remove the user by socket ID from the connected_users dictionary
-    for email, sid in list(connected_users.items()):
-        if sid == request.sid:
-            # Remove user from connected_users
-            del connected_users[email]
-            print(f'User {email} disconnected')
-
-            # Remove the user's location from the database
+    # Remove the socket from connected_users based on request.sid
+    for email, sockets in list(connected_users.items()):
+        if request.sid in sockets:
+            sockets.discard(request.sid)  # Remove the socket ID
+            print(f'User {email} disconnected from socket ID {request.sid}')
+            if not sockets:  # If no more sockets for this user, remove from dictionary
+                del connected_users[email]
+            # Clean up user's location from the database
             try:
                 conn = get_db_connection()
                 cur = conn.cursor()
@@ -180,10 +155,7 @@ def handle_disconnect():
                 print(f'Location for {email} has been removed from the database')
             except Exception as e:
                 print(f"Error removing location for {email}: {str(e)}")
-
             break
-
-    print('Client disconnected and removed from locations:', request.sid)
 
 @socketio.on("Nothing")
 def nothingSUp():
@@ -196,6 +168,7 @@ def nothingSUp():
 @socketio.on('update_location')
 def update_location(data):
     try:
+        print(f"Updating Location For {data.get("type")} {data.get("email")}")
         # Extract details from the received data
         email = data.get('email')
         longitude = data.get('longitude')
@@ -213,7 +186,6 @@ def update_location(data):
         # Check if the email exists in the location table
         cur.execute("SELECT COUNT(*) FROM location WHERE email = %s", (email,))
         count = cur.fetchone()[0]
-        print(f"Email: {email}, Location: {latitude} : {longitude}, UserType: {user_type}")
 
         if count > 0:
             # Update the existing location details for the provided email
@@ -383,6 +355,6 @@ if __name__ == '__main__':
 
     try:
         # Run SocketIO server
-        socketio.run(app, host='0.0.0.0', port=1245, debug=True, use_reloader=False)
+        socketio.run(app, host='0.0.0.0', port=1245, debug=True, use_reloader=True)
     except Exception as e:
         print(f"Exception occurred when starting the SocketIO server: {str(e)}")
