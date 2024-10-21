@@ -3,7 +3,7 @@ from flask_socketio import emit, join_room, leave_room, SocketIO
 from extensions.extensions import get_db_connection, socketio, app, mysql
 from extensions.db_schemas import database_schemas
 from functions.auth import userSignup, login, verifyEmail, changePassword, get_balance, add_to_balance, driverLogin, driverSignup, checkVerificationStatus, uploadVerificationImages, saveLinksToDB
-from functions.riders import haversine, find_closest_rider
+from functions.riders import haversine, find_closest_rider, endRide
 import re
 
 ###testing purposes###
@@ -17,25 +17,33 @@ def get_tables():
     cur.close()
     return jsonify(tables)
 
-@app.route("/alter-table/<email>/<status>", methods=["GET"])
-def alterTable(email, status):
+@app.route("/alter-table", methods=["GET"])
+def alterTable():
     try:
-        if not status:
-            return jsonify({"Message": "Status value is required"}), 400
-
         conn = get_db_connection()
         cur = conn.cursor()
-        
-        # Update the status column for the specified email
+
+        # Check if the status column exists
         cur.execute("""
-            UPDATE verificationdetails SET status = %s WHERE email = %s
-        """, (status, email))  # Update with the new status
+            SELECT COLUMN_NAME 
+            FROM INFORMATION_SCHEMA.COLUMNS 
+            WHERE TABLE_NAME = 'user_rides' AND COLUMN_NAME = 'status'
+        """)
+        column_exists = cur.fetchone()
+
+        # If the column doesn't exist, add it
+        if not column_exists:
+            cur.execute("""
+                ALTER TABLE user_rides
+                ADD COLUMN status VARCHAR(80) NOT NULL DEFAULT 'ongoing'
+            """)
+            conn.commit()  # Commit the changes to the database
         
-        conn.commit()  # Commit the changes to the database
-        return jsonify({"Message": "Status updated successfully"}), 200
+        return jsonify({"Message": "Column status added or already exists"}), 200
 
     except Exception as e:
         return jsonify({"Message": f"An error occurred: {str(e)}"}), 500
+
 
 
 @app.route('/describe/<table_name>', methods=['GET'])
@@ -118,6 +126,10 @@ def getStatus():
 @app.route("/uploadImages", methods=["GET", "POST"])
 def uploadImages():
     return uploadVerificationImages()
+
+@app.route("/endRide", methods=["GET", "POST"])
+def endTheRide():
+    return endRide()
     
 
 connected_users = {}
@@ -277,9 +289,9 @@ rider_sockets = {}
 
 @socketio.on('book_ride')
 def book_ride(data):
-    print('Starting book ride shit')
+    print('Starting book ride...')
     user_email = data.get('email')
-    user_location = data.get('location_coords')  # User's location should be passed here as a dict {'latitude': ..., 'longitude': ...}
+    user_location = data.get('location_coords')  # User's location as {'latitude': ..., 'longitude': ...}
     destinationDetails = data.get("dest_details")
     destination_location = data.get("dest_coords")
     amount = data.get("amount")
@@ -287,29 +299,29 @@ def book_ride(data):
 
     print(f"Email: {user_email}, Location: {user_location}, DestinationDetails: {destinationDetails}, amount: {amount}, destText: {destText}, Destination_location: {destination_location}")
 
-
-    # Sample data structure for all riders' locations
-    # available_riders = [{'email': 'rider1@example.com', 'latitude': ..., 'longitude': ...}, ...]
-
-    available_riders = data.get('allRiders')  # Fetch this from your database or wherever you're storing it
+    available_riders = data.get('allRiders')  # Should be fetched from your database
+    print(f"Available Riders: {available_riders}")
 
     if not available_riders:
         emit('ride_request_error', {'status': 404, 'message': 'No available riders found'})
         return
 
     # Find the closest rider
-    closest_rider = find_closest_rider(user_location, available_riders)
-    print(f"Closest rider is right here: {closest_rider}")
+    closest_rider = find_closest_rider(user_location=user_location, user_email=user_email)
+    print(f"Closest rider is: {closest_rider}")
 
     if closest_rider:
-        rider_sid = connected_users.get(closest_rider['email'])
-        print(f"Closest rider email; {closest_rider['email']}")
-        if rider_sid:
-            # Emit a ride request to the closest rider
-            socketio.emit('ride_request', {
+        rider_email = closest_rider['email']
+        rider_sids = connected_users.get(rider_email)
+        print(f"Closest rider email: {rider_email}")
+
+        if rider_sids:
+            # Use the first socket ID from the set to send the message
+            rider_sid = next(iter(rider_sids))  # Get one socket ID from the set
+            emit('ride_request', {
                 'user_email': user_email,
                 'location': user_location,
-                'rider_email': closest_rider['email'],
+                'rider_email': rider_email,
                 'details': destinationDetails,
                 'amount': amount,
                 'Place': destText,
@@ -317,10 +329,10 @@ def book_ride(data):
             }, to=rider_sid)  # Send request to the specific rider
             emit('ride_request_sent', {'status': 200, 'message': 'Ride request sent to the rider'})
         else:
-            print(f"CON: {connected_users}")
-            print('Rider not found')
+            print('Rider not found in connected users')
     else:
         emit('ride_request_error', {'status': 404, 'message': 'No suitable rider found'})
+
 
 
 # Function to extract username from email
@@ -333,16 +345,122 @@ def handle_accept_ride(data):
     user_email = data.get('user_email')
     driver_email = data.get('driver_email')
 
-    # Generate the ride ID (room name)
-    ride_id = f"{extract_username(driver_email)}{extract_username(user_email)}"
+    # Generate the ride ID (could be used for tracking)
+    ride_id = f"{extract_username(driver_email)}_{extract_username(user_email)}"
     
-    # Join both the driver and the user to the room
+    # Emit to both the user and driver
+    print(f"Driver {driver_email} and User {user_email} are being notified about ride {ride_id}")
+    
+    # Notify the driver (the one who sent the request)
+    emit('joined_ride', {
+        'ride_id': ride_id,
+        'message': f"Joined ride {ride_id}",
+        'driver_email': driver_email,
+        'email': user_email
+    }, to=request.sid)  # Emit back to the driver who initiated the ride request
+
+    # Automatically add the user (rider) to the ride
+    if user_email in connected_users:
+        print(f"Connected: {connected_users} {user_email}")
+        
+        # Get one socket ID for the user_email
+        try:
+            user_sid = next(iter(connected_users.get(user_email)))  # Get one session ID from the set
+            print(f"UserSID: {user_sid}")
+            
+            # Notify the user directly to "automatically" join the ride
+            socketio.emit('auto_join_ride', {
+                'ride_id': ride_id,
+                'message': f"You have automatically joined the ride {ride_id}",
+                'driver_email': driver_email
+            }, to=user_sid)  # Use the session ID to emit the message directly
+
+        except StopIteration:
+            print(f"Error: No session ID found for {user_email}.")
+    else:
+        print(f"User {user_email} is not connected.")
+
+    print(f"Driver {driver_email} and User {user_email} automatically joined ride {ride_id}")
+
+
+
+# When the user receives the invitation, they join the room
+@socketio.on("join_the_room")
+def join_the_room(data):
+    print(f"Joining room: {data}")
+    user_email = data.get('user_email')
+    driver_email = data.get('driver_email')
+    ride_id = f"{extract_username(driver_email)}_{extract_username(user_email)}"
+
+
+    # User joins the room
     join_room(ride_id)
 
-    # Notify both participants they've joined the room
-    emit('joined_ride_room', {'ride_id': ride_id, 'message': f"Joined ride room {ride_id}"}, room=ride_id)
+    # Notify the room that the user has joined
+    emit('joined_ride_room', {
+        'ride_id': ride_id, 
+        'message': f"User joined ride room {ride_id}",
+    }, room=ride_id)
 
-    print(f"Driver {driver_email} and User {user_email} joined room {ride_id}")
+    print(f"User joined room {ride_id}")
+
+@socketio.on("get_driver_details")
+def getDriverDetails(data):
+    driver_email = data.get('driver_email')
+
+    # Check if driver_email exists in the request
+    if not driver_email:
+        emit('driver_not_found', {
+            'message': 'Driver email is missing'
+        })
+        return
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Fetch driver details from the database
+        cur.execute("""
+            SELECT car_color, car_photo, driver_photo, driver_with_car_photo, email, gender, id, 
+                   license_photo, phone_number, plate_number, plate_photo 
+            FROM verificationdetails WHERE email = %s
+        """, (driver_email,))
+
+        driver_details = cur.fetchone()  # Fetch one record
+
+        # Log the fetched details
+        print(f"Driver Details: {driver_details}")
+
+        # If driver details are found, send them to the client
+        if driver_details:
+            # Map the result to the schema format
+            driver_data = {
+                "car_color": driver_details[0],
+                "car_photo": driver_details[1],
+                "driver_photo": driver_details[2],
+                "driver_with_car_photo": driver_details[3],
+                "email": driver_details[4],
+                "gender": driver_details[5],
+                "id": driver_details[6],
+                "license_photo": driver_details[7],
+                "phone_number": driver_details[8],
+                "plate_number": driver_details[9],
+                "plate_photo": driver_details[10],
+                "status": "success"
+            }
+            emit("driver_details_sent", driver_data)
+        else:
+            # If no driver details found, emit 'driver_not_found'
+            emit('driver_not_found', {
+                'message': 'Driver not found'
+            })
+
+    except Exception as e:
+        # Handle database or other exceptions
+        print(f"Error fetching driver details: {e}")
+        emit('server_error', {
+            'message': 'An error occurred while fetching driver details'
+        })
 
 
 

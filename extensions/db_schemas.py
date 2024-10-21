@@ -88,7 +88,9 @@ def database_schemas():
                 email VARCHAR(80) NOT NULL,
                 driver_email VARCHAR(80) NOT NULL,
                 ride_id VARCHAR(100) NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status VARCHAR(80) NOT NULL DEFAULT 'ongoing',
+                reference_id VARCHAR(255) NOT NULL
             )
         """)
         
