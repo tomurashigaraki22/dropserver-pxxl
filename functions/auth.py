@@ -205,29 +205,37 @@ def changePassword():
 
 def login():
     try:
-        email = request.form.get("email")
+        email_or_phone = request.form.get("email")  # This can be either email or phone number
         password = request.form.get("password")
 
-        if not email or not password:
+        if not email_or_phone or not password:
             return jsonify({'message': "Error: not all fields were sent or filled", 'status': 404})
-        
+
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # Check if the user exists
-        cur.execute("SELECT password, name, phone_number, balance FROM userauth WHERE email = %s", (email,))
+        # Check if the input is an email or phone number
+        if "@" in email_or_phone:  # Basic check for email
+            query = "SELECT password, name, phone_number, balance FROM userauth WHERE email = %s"
+            param = (email_or_phone,)
+        else:  # Treat as phone number
+            query = "SELECT password, email, name, balance FROM userauth WHERE phone_number = %s"
+            param = (email_or_phone,)
+
+        # Execute the query
+        cur.execute(query, param)
         user = cur.fetchone()
-        
+
         if user is None:
             return jsonify({'message': "User not found", 'status': 404})
 
-        stored_password, name, phone_number, balance = user
+        stored_password, name, phone_number, balance = user if "@" in email_or_phone else (user[0], user[1], user[2], user[3])
 
         # Verify the password
         if check_password_hash(stored_password, password):
             # Create the payload for the JWT token without expiration
             payload = {
-                'email': email,
+                'email': email_or_phone if "@" in email_or_phone else user[1],  # Get email from user data if login was by phone
                 'phone_number': phone_number,
                 'name': name,
                 'user_type': 'user',
@@ -243,7 +251,9 @@ def login():
             return jsonify({
                 'message': "Login successful",
                 'token': token,  # Sending the token with the caption 'token'
-                'status': 200
+                'status': 200,
+                'email': payload['email'],  # Return email
+                'phone_number': phone_number,  # Return phone number
             })
         else:
             conn.close()
@@ -251,6 +261,7 @@ def login():
 
     except Exception as e:
         return jsonify({'message': f"An error occurred: {str(e)}", 'status': 500})
+
 
 # Secret key for encoding the JWT
 
