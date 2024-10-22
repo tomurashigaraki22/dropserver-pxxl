@@ -759,6 +759,22 @@ def join_the_room(data):
 
     print(f"User joined room {ride_id}")
 
+@socketio.on('endedRide')
+def endedTheRide(data):
+    driver_email = data.get('driver_email')
+    user_email = data.get('user_email')
+
+    if not driver_email or not user_email:
+        return
+
+    # Assuming connected_users is a dictionary with driver_email as key and a list of SIDs as value
+    driver_sids = connected_users.get(driver_email)
+
+    if driver_sids:
+        # Emit the 'endedRide' event to all SIDs linked to the driver_email
+        socketio.emit('endedRide', {'user_email': user_email}, to=driver_sids)
+
+
 @socketio.on("get_driver_details")
 def getDriverDetails(data):
     driver_email = data.get('driver_email')
