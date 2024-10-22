@@ -775,6 +775,17 @@ def endedTheRide(data):
         socketio.emit('endedRide', {'user_email': user_email}, to=driver_sids)
 
 
+@socketio.on('joinRoom')
+def handleJoinRoom(room):
+    join_room(room)
+    emit('message', {'text': f'User has joined the room: {room}'}, room=room)
+
+@socketio.on('sendMessage')
+def handleSendMessage(data):
+    room = data['room']
+    emit('message', data, room=room)  # Send message to all in the room
+
+
 @socketio.on("get_driver_details")
 def getDriverDetails(data):
     driver_email = data.get('driver_email')
