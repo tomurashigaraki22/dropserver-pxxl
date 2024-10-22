@@ -3,6 +3,57 @@ from extensions.extensions import get_db_connection
 from flask import Flask, request, jsonify
 from functions.generate_ids import generate_transaction_and_reference_ids
 
+
+def endRide2():
+    try:
+        # Extract data from the request form
+        ride_id = request.form.get('ride_id')
+        driver_email = request.form.get("driver_email")
+        user_email = request.form.get('user_email')
+        status = request.form.get("status")
+        transaction_id, ref_id = generate_transaction_and_reference_ids()
+
+        # Ensure the required fields are provided
+        if not ride_id or not driver_email or not user_email or not status:
+            return jsonify({"Message": "Missing required parameters"}), 400
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Check the current status of the ride, ordered by the most recent one
+        cur.execute("""
+            SELECT status 
+            FROM user_rides 
+            WHERE ride_id = %s AND driver_email = %s AND email = %s 
+            ORDER BY created_at DESC LIMIT 1
+        """, (ride_id, driver_email, user_email))
+        existing_ride = cur.fetchone()
+
+        if existing_ride:
+            # If the ride exists and status is 'ongoing', update it to 'cancelled'
+            if existing_ride[0] == 'ongoing':
+                cur.execute("""
+                    UPDATE user_rides 
+                    SET status = %s, reference_id = %s 
+                    WHERE ride_id = %s AND driver_email = %s AND email = %s
+                """, ('cancelled', ref_id, ride_id, driver_email, user_email))
+                conn.commit()
+                return jsonify({"Message": "Ride status updated to cancelled"}), 200
+            else:
+                return jsonify({"Message": f"Ride is not in 'ongoing' status, current status is {existing_ride[0]}"}), 201
+        else:
+            # If the ride doesn't exist, insert a new record with 'cancelled' status
+            cur.execute("""
+                INSERT INTO user_rides (email, driver_email, ride_id, reference_id, status) 
+                VALUES (%s, %s, %s, %s, %s)
+            """, (user_email, driver_email, ride_id, ref_id, 'cancelled'))
+            conn.commit()
+            return jsonify({"Message": "New ride created with cancelled status"}), 200
+
+    except Exception as e:
+        return jsonify({"Message": f"An error occurred: {str(e)}"}), 500
+
+
 def endRide():
     try:
         # Extract data from the request form
@@ -25,7 +76,7 @@ def endRide():
 
         if existing_ride:
             # If the ride exists and status is 'In Route', update it to 'cancelled'
-            if existing_ride[0] == 'In Route':
+            if existing_ride[0] == 'ongoing':
                 cur.execute("""
                     UPDATE user_rides 
                     SET status = %s, reference_id = %s 
@@ -65,7 +116,7 @@ def haversine(coord1, coord2):
 
     return R * c  # Distance in kilometers
 
-def find_closest_rider(user_location, user_email):  # Change available_riders to the result from the DB
+def find_closest_rider(user_location, user_email, rejected_riders):  
     closest_rider = None
     min_distance = float('inf')
 
@@ -78,10 +129,9 @@ def find_closest_rider(user_location, user_email):  # Change available_riders to
         SELECT email, longitude, latitude, user_type 
         FROM location 
         WHERE email != %s
-    """, (user_email,))  # Pass user_email instead of a dictionary
+    """, (user_email,))
 
     locations = cur.fetchall()
-    print(f"Locations Object: {locations}")
 
     # Close the cursor and connection
     cur.close()
@@ -100,7 +150,7 @@ def find_closest_rider(user_location, user_email):  # Change available_riders to
 
     # Iterate through the list of available riders (from the DB result)
     for rider in available_riders:
-        if rider['user_type'] == 'driver':  # Filter drivers
+        if rider['user_type'] == 'driver' and rider['email'] not in rejected_riders:  # Filter drivers and exclude rejected ones
             rider_location = (rider['latitude'], rider['longitude'])
             distance = haversine((user_location['latitude'], user_location['longitude']), rider_location)
 

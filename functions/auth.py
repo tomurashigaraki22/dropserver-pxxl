@@ -308,6 +308,7 @@ def userSignup():
 
     except Exception as e:
         return jsonify({'message': f"An error occurred: {str(e)}", 'status': 500})
+    
 
 
 def driverLogin():

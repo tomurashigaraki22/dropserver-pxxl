@@ -3,8 +3,9 @@ from flask_socketio import emit, join_room, leave_room, SocketIO
 from extensions.extensions import get_db_connection, socketio, app, mysql
 from extensions.db_schemas import database_schemas
 from functions.auth import userSignup, login, verifyEmail, changePassword, get_balance, add_to_balance, driverLogin, driverSignup, checkVerificationStatus, uploadVerificationImages, saveLinksToDB
-from functions.riders import haversine, find_closest_rider, endRide
+from functions.riders import haversine, find_closest_rider, endRide, endRide2
 import re
+from functions.generate_ids import generate_transaction_and_reference_ids
 
 ###testing purposes###
 
@@ -130,6 +131,10 @@ def uploadImages():
 @app.route("/endRide", methods=["GET", "POST"])
 def endTheRide():
     return endRide()
+
+@app.route("/endRide2", methods=["GET", "POST"])
+def endTheRide2():
+    return endRide2()
     
 
 connected_users = {}
@@ -381,6 +386,217 @@ def handle_accept_ride(data):
         print(f"User {user_email} is not connected.")
 
     print(f"Driver {driver_email} and User {user_email} automatically joined ride {ride_id}")
+
+
+@socketio.on("start_ride")
+def startRide(data):
+    try:
+        user_email = data.get('user_email')
+        driver_email = data.get('driver_email')
+        
+        if not user_email or not driver_email:
+            return jsonify({"Message": "Missing required parameters"}), 400
+
+        # Generate a ride_id
+        ride_id = f"{extract_username(driver_email)}_{extract_username(user_email)}"
+        ref_id, transaction_id = generate_transaction_and_reference_ids()
+
+        # Get the connection SIDs for both the driver and user
+        user_sid = connected_users.get(user_email)
+        driver_sid = connected_users.get(driver_email)
+
+        if not user_sid or not driver_sid:
+            return jsonify({"Message": "One or both users are not connected"}), 400
+
+        # Check if a ride already exists for this combination
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT status FROM user_rides 
+            WHERE ride_id = %s AND driver_email = %s AND email = %s
+            ORDER BY created_at DESC LIMIT 1
+        """, (ride_id, driver_email, user_email))
+        existing_ride = cur.fetchone()
+
+        if existing_ride:
+            if existing_ride[0] == 'ongoing':
+                return jsonify({"Message": "Ride is already ongoing"}), 400
+            else:
+                # If the ride is not ongoing, update its status to 'ongoing'
+                cur.execute("""
+                    UPDATE user_rides 
+                    SET status = %s, reference_id = %s 
+                    WHERE ride_id = %s AND driver_email = %s AND email = %s
+                """, ('ongoing', ref_id, ride_id, driver_email, user_email))
+        else:
+            # If the ride doesn't exist, create a new one with 'ongoing' status
+            cur.execute("""
+                INSERT INTO user_rides (email, driver_email, ride_id, reference_id, status) 
+                VALUES (%s, %s, %s, %s, %s)
+            """, (user_email, driver_email, ride_id, ref_id, 'ongoing'))
+
+        conn.commit()
+
+        # Emit the "ride_started" event to both user and driver
+        ride_data = {
+            'ride_id': ride_id,
+            'driver_email': driver_email,
+            'user_email': user_email
+        }
+
+        # Emit to user
+        socketio.emit("ride_started", ride_data, to=user_sid)
+        
+        # Emit to driver
+        socketio.emit("ride_started", ride_data, to=driver_sid)
+
+        return jsonify({"Message": "Ride started successfully"}), 200
+
+    except Exception as e:
+        return jsonify({"Message": f"An error occurred: {str(e)}"}), 500
+    
+@socketio.on("complete_ride")
+def completeRide(data):
+    try:
+        user_email = data.get('user_email')
+        driver_email = data.get('driver_email')
+        
+        if not user_email or not driver_email:
+            return jsonify({"Message": "Missing required parameters"}), 400
+
+        # Generate a ride_id
+        ride_id = f"{extract_username(driver_email)}_{extract_username(user_email)}"
+
+        # Get the connection SIDs for both the driver and user
+        user_sid = connected_users.get(user_email)
+        driver_sid = connected_users.get(driver_email)
+
+        if not user_sid or not driver_sid:
+            return jsonify({"Message": "One or both users are not connected"}), 400
+
+        # Check if the ride exists and is ongoing
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT status FROM user_rides 
+            WHERE ride_id = %s AND driver_email = %s AND email = %s
+            ORDER BY created_at DESC LIMIT 1
+        """, (ride_id, driver_email, user_email))
+        existing_ride = cur.fetchone()
+
+        if not existing_ride:
+            return jsonify({"Message": "Ride does not exist"}), 400
+
+        if existing_ride[0] == 'completed':
+            return jsonify({"Message": "Ride is already marked as completed"}), 400
+
+        if existing_ride[0] != 'ongoing':
+            return jsonify({"Message": "Cannot complete ride that is not ongoing, current status is {existing_ride[0]}"}), 400
+
+        # Update the ride status to 'completed'
+        cur.execute("""
+            UPDATE user_rides 
+            SET status = %s 
+            WHERE ride_id = %s AND driver_email = %s AND email = %s
+        """, ('completed', ride_id, driver_email, user_email))
+
+        conn.commit()
+
+        # Emit the "ride_completed" event to both user and driver
+        ride_data = {
+            'ride_id': ride_id,
+            'driver_email': driver_email,
+            'user_email': user_email
+        }
+
+        # Emit to user
+        socketio.emit("ride_completed", ride_data, to=user_sid)
+        
+        # Emit to driver
+        socketio.emit("ride_completed", ride_data, to=driver_sid)
+
+        return jsonify({"Message": "Ride marked as completed successfully"}), 200
+
+    except Exception as e:
+        return jsonify({"Message": f"An error occurred: {str(e)}"}), 500
+    
+
+# Dictionary to store rejected drivers temporarily for each ride request
+rejected_riders = {}
+
+@socketio.on('reject_ride')
+def handle_reject_ride(data):
+    try:
+        # Extract the emails from the data
+        user_email = data.get('user_email')
+        driver_email = data.get('driver_email')
+        user_location = data.get('user_location')  # Assume user_location is passed with the ride request
+
+        # Ensure both emails are provided
+        if not user_email or not driver_email:
+            return emit('error', {'message': 'Missing user_email or driver_email'})
+
+        # Add the rejecting driver to the rejected riders list
+        if user_email in rejected_riders:
+            rejected_riders[user_email].append(driver_email)
+        else:
+            rejected_riders[user_email] = [driver_email]
+
+        # Find the next closest available driver excluding rejected drivers
+        next_closest_rider = find_closest_rider(user_location, user_email, rejected_riders[user_email])
+
+        if not next_closest_rider:
+            # If no drivers are available, notify the user
+            emit('no_available_drivers', {
+                'message': 'No available drivers at the moment.',
+                'user_email': user_email
+            })
+            return jsonify({"message": "No available drivers", "status": 404})
+
+        # Assign the ride to the next closest rider
+        new_driver_email = next_closest_rider['email']
+        ride_id = f"{extract_username(new_driver_email)}_{extract_username(user_email)}"
+
+        # Get the session ID (sid) of the new driver
+        new_driver_sid = connected_users.get(new_driver_email)
+
+        if new_driver_sid:
+            # Notify the new driver about the ride request
+            socketio.emit('ride_request', {
+                'ride_id': ride_id,
+                'user_email': user_email,
+                'driver_email': new_driver_email
+            }, to=new_driver_sid)
+
+            # Notify the user that a new driver has been found
+            user_sid = connected_users.get(user_email)
+            if user_sid:
+                socketio.emit('ride_rejected_new_driver', {
+                    'ride_id': ride_id,
+                    'message': f"A new driver {new_driver_email} has been found for your ride.",
+                    'driver_email': new_driver_email
+                }, to=user_sid)
+
+        else:
+            # If the new driver is not connected, continue searching or return an error
+            return emit('error', {'message': 'New driver is not available at the moment'})
+
+    except Exception as e:
+        emit('error', {'message': f'An error occurred: {str(e)}'})
+
+
+
+
+@socketio.on('update_status')
+def updateStatus(data):
+    user_email = data.get('user_email')
+    driver_email = data.get('driver_email')
+    ride_id = data.get('ride_id')
+
+    
+
 
 
 
