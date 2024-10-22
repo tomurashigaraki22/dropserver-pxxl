@@ -78,10 +78,10 @@ def database_schemas():
                 transaction_id VARCHAR(100) NOT NULL,
                 reference_id VARCHAR(100) NOT NULL,
                 months_paid INT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL
             )
-        """)
-        
+        """)        
         cur.execute(""" 
             CREATE TABLE IF NOT EXISTS user_rides (
                 id INT AUTO_INCREMENT PRIMARY KEY,

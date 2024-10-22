@@ -5,6 +5,7 @@ from extensions.db_schemas import database_schemas
 from functions.auth import userSignup, login, verifyEmail, changePassword, get_balance, add_to_balance, driverLogin, driverSignup, checkVerificationStatus, uploadVerificationImages, saveLinksToDB
 from functions.riders import haversine, find_closest_rider, endRide, endRide2
 import re
+import datetime
 from functions.generate_ids import generate_transaction_and_reference_ids
 
 ###testing purposes###
@@ -24,26 +25,43 @@ def alterTable():
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # Check if the status column exists
+        # Check if the 'status' column exists in 'user_rides'
         cur.execute("""
             SELECT COLUMN_NAME 
             FROM INFORMATION_SCHEMA.COLUMNS 
             WHERE TABLE_NAME = 'user_rides' AND COLUMN_NAME = 'status'
         """)
-        column_exists = cur.fetchone()
+        status_column_exists = cur.fetchone()
 
-        # If the column doesn't exist, add it
-        if not column_exists:
+        # If 'status' column doesn't exist, add it
+        if not status_column_exists:
             cur.execute("""
                 ALTER TABLE user_rides
                 ADD COLUMN status VARCHAR(80) NOT NULL DEFAULT 'ongoing'
             """)
-            conn.commit()  # Commit the changes to the database
-        
-        return jsonify({"Message": "Column status added or already exists"}), 200
+            conn.commit()  # Commit the changes
+
+        # Check if the 'expires_at' column exists in 'subscriptions'
+        cur.execute("""
+            SELECT COLUMN_NAME 
+            FROM INFORMATION_SCHEMA.COLUMNS 
+            WHERE TABLE_NAME = 'subscriptions' AND COLUMN_NAME = 'expires_at'
+        """)
+        expires_at_column_exists = cur.fetchone()
+
+        # If 'expires_at' column doesn't exist, add it
+        if not expires_at_column_exists:
+            cur.execute("""
+                ALTER TABLE subscriptions
+                ADD COLUMN expires_at TIMESTAMP DEFAULT NULL
+            """)
+            conn.commit()  # Commit the changes
+
+        return jsonify({"Message": "'status' and 'expires_at' columns added or already exist"}), 200
 
     except Exception as e:
         return jsonify({"Message": f"An error occurred: {str(e)}"}), 500
+
 
 
 
@@ -135,6 +153,103 @@ def endTheRide():
 @app.route("/endRide2", methods=["GET", "POST"])
 def endTheRide2():
     return endRide2()
+
+def calculate_expiration_date(months_paid):
+    # Calculate the expiration date based on the number of months paid
+    return datetime.datetime.now() + datetime.timedelta(days=months_paid * 30)  # Approximation
+
+@app.route('/subscribe', methods=['POST'])
+def subscribe_user():
+    # Extract data from the request form
+    email = request.form.get('email')
+    transaction_id = generate_transaction_and_reference_ids()  # Assuming you have this function
+    reference_id = request.form.get("reference_id")
+    months_paid = request.form.get('months_paid')
+
+    # Validate inputs
+    if not email or not transaction_id or not reference_id or not months_paid or int(months_paid) <= 0:
+        return jsonify({"message": "Invalid input parameters.", "status": 400})  # Return status code in JSON body
+
+    try:
+        # Connect to the database
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Calculate the expiration date
+        expiration_date = calculate_expiration_date(int(months_paid))
+
+        # Insert the subscription into the database
+        cur.execute("""
+            INSERT INTO subscriptions (email, transaction_id, reference_id, months_paid, expires_at) 
+            VALUES (%s, %s, %s, %s, %s)
+        """, (email, transaction_id, reference_id, months_paid, expiration_date))
+
+        conn.commit()
+
+    except Exception as e:
+        return jsonify({"message": f"An error occurred: {str(e)}", "status": 500})  # Return status code in JSON body
+    
+    return jsonify({"message": "Subscription created successfully.", "expires_at": expiration_date, "status": 201})  # Status code 201 in JSON body
+
+
+
+@app.route('/check_subscription', methods=['POST'])
+def check_subscription_status():
+    # Extract email from the request form
+    email = request.form.get('email')
+
+    if not email:
+        return jsonify({"message": "Email is required.", "status": 400})  # Status in JSON body
+
+    # Connect to the database
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    # Check the latest subscription for the user
+    cur.execute("""
+        SELECT expires_at 
+        FROM subscriptions 
+        WHERE email = %s 
+        ORDER BY created_at DESC 
+        LIMIT 1
+    """, (email,))
+    
+    subscription = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if subscription:
+        expires_at = subscription[0]
+        current_time = datetime.datetime.now()
+
+        if expires_at > current_time:
+            days_left = (expires_at - current_time).days
+
+            # Check if the subscription expires within 3 days
+            if days_left <= 3:
+                # Handle the case where subscription is expiring soon
+                print(f"Subscription for {email} will expire in {days_left} days.")
+                return jsonify({
+                    "message": "User is currently subscribed.",
+                    "expires_at": expires_at,
+                    "status": 200,
+                    "days_left": days_left,
+                    "expires_soon": True  # Subscription is expiring soon
+                })
+
+            return jsonify({
+                "message": "User is currently subscribed.",
+                "expires_at": expires_at,
+                "status": 200,
+                "days_left": days_left,
+                "expires_soon": False  # Subscription is not expiring soon
+            })
+
+        else:
+            return jsonify({"message": "User's subscription has expired.", "status": 200})
+
+    # Return 409 status in JSON body if no active subscription is found
+    return jsonify({"message": "No active subscription found.", "status": 409})
     
 
 connected_users = {}
@@ -305,14 +420,15 @@ def book_ride(data):
     print(f"Email: {user_email}, Location: {user_location}, DestinationDetails: {destinationDetails}, amount: {amount}, destText: {destText}, Destination_location: {destination_location}")
 
     available_riders = data.get('allRiders')  # Should be fetched from your database
-    print(f"Available Riders: {available_riders}")
+    rejected_riders = data.get('rejected_riders', [])  # Default to an empty list if not provided
+    print(f"Available Riders: {available_riders}, Rejected Riders: {rejected_riders}")
 
     if not available_riders:
         emit('ride_request_error', {'status': 404, 'message': 'No available riders found'})
         return
 
-    # Find the closest rider
-    closest_rider = find_closest_rider(user_location=user_location, user_email=user_email)
+    # Find the closest rider, passing rejected_riders if available
+    closest_rider = find_closest_rider(user_location=user_location, user_email=user_email, rejected_riders=rejected_riders)
     print(f"Closest rider is: {closest_rider}")
 
     if closest_rider:
@@ -335,8 +451,10 @@ def book_ride(data):
             emit('ride_request_sent', {'status': 200, 'message': 'Ride request sent to the rider'})
         else:
             print('Rider not found in connected users')
+            emit('ride_request_error', {'status': 404, 'message': 'Rider not found in connected users'})
     else:
         emit('ride_request_error', {'status': 404, 'message': 'No suitable rider found'})
+
 
 
 
@@ -529,10 +647,17 @@ rejected_riders = {}
 @socketio.on('reject_ride')
 def handle_reject_ride(data):
     try:
-        # Extract the emails from the data
+        # Extract the emails and other details from the data
+        print("Rejecting Ride")
         user_email = data.get('user_email')
         driver_email = data.get('driver_email')
-        user_location = data.get('user_location')  # Assume user_location is passed with the ride request
+        user_location = data.get('user_location')
+        destinationDetails = data.get("dest_details")
+        destination_location = data.get("dest_coords")
+        amount = data.get("amount")
+        destText = data.get("destination")
+        
+        print(f"UserLocation: {user_location}, DriverEmail: {driver_email}, UserEmail: {user_email}")
 
         # Ensure both emails are provided
         if not user_email or not driver_email:
@@ -546,13 +671,18 @@ def handle_reject_ride(data):
 
         # Find the next closest available driver excluding rejected drivers
         next_closest_rider = find_closest_rider(user_location, user_email, rejected_riders[user_email])
+        print(next_closest_rider)
 
         if not next_closest_rider:
             # If no drivers are available, notify the user
-            emit('no_available_drivers', {
-                'message': 'No available drivers at the moment.',
-                'user_email': user_email
-            })
+            print(f"No available drivers found for user: {user_email}")
+            user_sids = connected_users.get(user_email)
+            if user_sids:
+                for user_sid in user_sids:
+                    socketio.emit('no_available_drivers', {
+                        'message': 'No available drivers at the moment.',
+                        'user_email': user_email
+                    }, to=user_sid)
             return jsonify({"message": "No available drivers", "status": 404})
 
         # Assign the ride to the next closest rider
@@ -567,7 +697,12 @@ def handle_reject_ride(data):
             socketio.emit('ride_request', {
                 'ride_id': ride_id,
                 'user_email': user_email,
-                'driver_email': new_driver_email
+                'driver_email': new_driver_email,
+                'location': user_location,
+                'details': destinationDetails,
+                'destination': destination_location,
+                'amount': amount,
+                'destText': destText
             }, to=new_driver_sid)
 
             # Notify the user that a new driver has been found
@@ -576,7 +711,12 @@ def handle_reject_ride(data):
                 socketio.emit('ride_rejected_new_driver', {
                     'ride_id': ride_id,
                     'message': f"A new driver {new_driver_email} has been found for your ride.",
-                    'driver_email': new_driver_email
+                    'driver_email': new_driver_email,
+                    'user_location': user_location,
+                    'destinationDetails': destinationDetails,
+                    'destination_location': destination_location,
+                    'amount': amount,
+                    'destText': destText
                 }, to=user_sid)
 
         else:
@@ -585,7 +725,6 @@ def handle_reject_ride(data):
 
     except Exception as e:
         emit('error', {'message': f'An error occurred: {str(e)}'})
-
 
 
 
