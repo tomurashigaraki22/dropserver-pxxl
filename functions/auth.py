@@ -9,6 +9,9 @@ from flask_mail import Message
 import random
 import cloudinary
 import cloudinary.uploader
+import base64
+from PIL import Image
+import io
 import cloudinary.api
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'hontoniano')  # Replace 'mysecretkey' with an actual key
@@ -493,43 +496,53 @@ def checkVerificationStatus():
 
 def uploadVerificationImages():
     try:
-        # Retrieve email and phone number from the request
-        email = request.form.get("email")
-        car_color = request.form.get("carColor")  # Get car color from the request parameters
+        # Parse the JSON payload
+        data = request.get_json()
 
-        # Get uploaded files from the request
-        carPhoto = request.files.get("carPhoto")
-        driverPhoto = request.files.get("driverPhoto")
-        licensePhoto = request.files.get("licensePhoto")
-        platePhoto = request.files.get("platePhoto")
-        plate_number = request.form.get("plate_number")
-        driverWithCarPhoto = request.files.get("driverWithCarPhoto")
+        # Retrieve email, car color, and plate number from the request
+        email = data.get("email")
+        car_color = data.get("carColor")
+        plate_number = data.get("plate_number")
+
+        # Retrieve Base64-encoded images from the payload
+        carPhotoBase64 = data['images'].get("carPhoto")
+        driverPhotoBase64 = data['images'].get("driverPhoto")
+        licensePhotoBase64 = data['images'].get("licensePhoto")
+        platePhotoBase64 = data['images'].get("platePhoto")
+        driverWithCarPhotoBase64 = data['images'].get("driverWithCarPhoto")
 
         # Create a response dictionary to hold Cloudinary URLs
         response_data = {}
 
-        # Function to upload a file to Cloudinary
-        def upload_to_cloudinary(file_key, file):
-            if file:
-                upload_result = cloudinary.uploader.upload(file)
+        # Function to upload Base64-encoded image to Cloudinary
+        def upload_base64_to_cloudinary(file_key, base64_string):
+            if base64_string:
+                # Remove the data URL prefix (e.g., 'data:image/jpeg;base64,')
+                image_data = base64_string.split(",")[1]
+                # Decode the Base64 string into bytes
+                image_bytes = base64.b64decode(image_data)
+                # Use io.BytesIO to create a file-like object from the bytes
+                image_file = io.BytesIO(image_bytes)
+                # Upload to Cloudinary
+                upload_result = cloudinary.uploader.upload(image_file)
                 # Save the Cloudinary URL in the response data
                 response_data[file_key] = upload_result['secure_url']
             else:
                 response_data[file_key] = None
 
-        # Upload images to Cloudinary
-        upload_to_cloudinary("carPhoto", carPhoto)
-        upload_to_cloudinary("driverPhoto", driverPhoto)
-        upload_to_cloudinary("licensePhoto", licensePhoto)
-        upload_to_cloudinary("platePhoto", platePhoto)
-        upload_to_cloudinary("driverWithCarPhoto", driverWithCarPhoto)
+        # Upload each image to Cloudinary
+        upload_base64_to_cloudinary("carPhoto", carPhotoBase64)
+        upload_base64_to_cloudinary("driverPhoto", driverPhotoBase64)
+        upload_base64_to_cloudinary("licensePhoto", licensePhotoBase64)
+        upload_base64_to_cloudinary("platePhoto", platePhotoBase64)
+        upload_base64_to_cloudinary("driverWithCarPhoto", driverWithCarPhotoBase64)
 
-        # Check if response_data is not empty before saving to DB
+        # Check if any images were successfully uploaded
         if not response_data:
-            return jsonify({'message': "No links found", 'status': 409})
+            return jsonify({'message': "No images uploaded", 'status': 409})
 
-        print("DDD: ")  # Debug statement
-        return saveLinksToDB(data=response_data, email=email, car_color=car_color, plate_number=plate_number)  # Pass car_color as well
+        # Save the uploaded image links along with other details to the database
+        return saveLinksToDB(data=response_data, email=email, car_color=car_color, plate_number=plate_number)
 
     except Exception as e:
         return jsonify({'message': f"An error occurred: {str(e)}", 'status': 500})

@@ -143,7 +143,8 @@ def getStatus():
     return checkVerificationStatus()
 
 @app.route("/uploadImages", methods=["GET", "POST"])
-def uploadImages():
+def uploadImagess():
+    print("Uploading images")
     return uploadVerificationImages()
 
 @app.route("/endRide", methods=["GET", "POST"])
@@ -162,13 +163,12 @@ def calculate_expiration_date(months_paid):
 def subscribe_user():
     # Extract data from the request form
     email = request.form.get('email')
-    transaction_id = generate_transaction_and_reference_ids()  # Assuming you have this function
-    reference_id = request.form.get("reference_id")
-    months_paid = request.form.get('months_paid')
+    transaction_id, reference_id = generate_transaction_and_reference_ids()  # Assuming you have this function
+    months_paid = int(request.form.get('months_paid', 0))  # Convert to int with a default of 0
 
     # Validate inputs
-    if not email or not transaction_id or not reference_id or not months_paid or int(months_paid) <= 0:
-        return jsonify({"message": "Invalid input parameters.", "status": 400})  # Return status code in JSON body
+    if not email or not transaction_id or not reference_id or months_paid <= 0:
+        return jsonify({"message": "Invalid input parameters.", "status": 400})
 
     try:
         # Connect to the database
@@ -176,7 +176,14 @@ def subscribe_user():
         cur = conn.cursor()
 
         # Calculate the expiration date
-        expiration_date = calculate_expiration_date(int(months_paid))
+        expiration_date = calculate_expiration_date(months_paid)
+
+        # Debugging output
+        print("Email:", email)
+        print("Transaction ID:", transaction_id)
+        print("Reference ID:", reference_id)
+        print("Months Paid:", months_paid)
+        print("Expiration Date:", expiration_date)
 
         # Insert the subscription into the database
         cur.execute("""
@@ -187,10 +194,9 @@ def subscribe_user():
         conn.commit()
 
     except Exception as e:
-        return jsonify({"message": f"An error occurred: {str(e)}", "status": 500})  # Return status code in JSON body
-    
-    return jsonify({"message": "Subscription created successfully.", "expires_at": expiration_date, "status": 201})  # Status code 201 in JSON body
+        return jsonify({"message": f"An error occurred: {str(e)}", "status": 500})
 
+    return jsonify({"message": "Subscription created successfully.", "expires_at": expiration_date, "status": 201})
 
 
 @app.route('/check_subscription', methods=['POST'])
