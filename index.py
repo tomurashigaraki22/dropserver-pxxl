@@ -846,6 +846,294 @@ def getDriverDetails(data):
 
 
 
+
+
+
+### admin Side
+
+
+@app.route("/getusercount", methods=["GET", "POST"])
+def getNoUsers():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Query to count the number of users
+        cur.execute("""
+            SELECT COUNT(*) FROM userauth
+        """)
+        
+        # Fetch the result
+        result = cur.fetchone()
+        user_count = result[0] if result else 0
+
+        # Close the connection
+        cur.close()
+        conn.close()
+
+        # Return the user count as JSON
+        return jsonify({"number_of_users": user_count}), 200
+
+    except Exception as e:
+        # Handle exceptions and return error
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/getNumberofdrivers", methods=["GET", "POST"])
+def getNoDrivers():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Query to count the number of users with user_type 'driver'
+        cur.execute("""
+            SELECT COUNT(*) FROM userauth WHERE user_type = %s
+        """, ('driver',))
+
+        # Fetch the result
+        result = cur.fetchone()
+        driver_count = result[0] if result else 0
+
+        # Close the connection
+        cur.close()
+        conn.close()
+
+        # Return the driver count as JSON
+        return jsonify({"number_of_drivers": driver_count}), 200
+
+    except Exception as e:
+        # Handle exceptions and return error
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/getnumberofusers", methods=["GET", "POST"])
+def getNoRegularUsers():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Query to count the number of users with user_type 'user'
+        cur.execute("""
+            SELECT COUNT(*) FROM userauth WHERE user_type = %s
+        """, ('user',))
+
+        # Fetch the result
+        result = cur.fetchone()
+        user_count = result[0] if result else 0
+
+        # Close the connection
+        cur.close()
+        conn.close()
+
+        # Return the user count as JSON
+        return jsonify({"number_of_regular_users": user_count}), 200
+
+    except Exception as e:
+        # Handle exceptions and return error
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/getSubscribedDriversInfo", methods=["GET"])
+def getSubscribedDriversInfo():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Query to count the number of subscribed drivers and calculate total revenue
+        cur.execute("""
+            SELECT COUNT(*), SUM(months_paid * 1000) as total_revenue FROM subscriptions
+        """)  # Assuming 1000 is the subscription cost per month
+
+        result = cur.fetchone()
+        driver_count = result[0] if result else 0
+        total_revenue = result[1] if result else 0
+
+        # Close connection
+        cur.close()
+        conn.close()
+
+        # Return the result as JSON
+        return jsonify({
+            "subscribed_drivers": driver_count,
+            "total_revenue": total_revenue
+        }), 200
+
+    except Exception as e:
+        # Handle exceptions and return error
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/updateVerificationStatus/<int:id>', methods=['POST'])
+def update_verification_status(id):
+    try:
+        data = request.get_json()
+        new_status = data['status']
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Update the status in the database
+        cur.execute("UPDATE verificationdetails SET status = %s WHERE id = %s", (new_status, id))
+        conn.commit()
+
+        cur.close()
+        conn.close()
+
+        return jsonify({"message": "Status updated successfully!"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+@app.route('/getRides', methods=['GET'])
+def get_rides():
+    try:
+        # Establish connection to the database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # SQL query to fetch all rides
+        cursor.execute("""
+            SELECT id, email, driver_email, ride_id, created_at, status, reference_id 
+            FROM user_rides
+        """)
+        
+        # Fetch all results
+        rides = cursor.fetchall()
+        
+        # Convert the fetched rides into a list of dictionaries (array of objects)
+        ride_list = []
+        for ride in rides:
+            ride_list.append({
+                'id': ride[0],
+                'email': ride[1],
+                'driver_email': ride[2],
+                'ride_id': ride[3],
+                'created_at': ride[4],
+                'status': ride[5],
+                'reference_id': ride[6]
+            })
+        
+        # Close database connection
+        cursor.close()
+        conn.close()
+        
+        # Return the rides data as JSON
+        return jsonify({'rides': ride_list}), 200
+    
+    except Exception as e:
+        print(f"Error occurred: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/getUsers', methods=['GET'])
+def get_users():
+    try:
+        # Establish connection to the database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # SQL query to fetch all user data except password
+        cursor.execute("""
+            SELECT id, email, phone_number, created_at, user_type, balance, age, gender 
+            FROM userauth
+        """)
+
+        # Fetch all results
+        users = cursor.fetchall()
+
+        # Restructure the fetched data into an array of dictionaries
+        result = []
+        for user in users:
+            result.append({
+                'id': user[0],
+                'email': user[1],
+                'phone_number': user[2],
+                'created_at': user[3],
+                'user_type': user[4],
+                'balance': user[5],
+                'age': user[6],
+                'gender': user[7]
+            })
+
+        # Close database connection
+        cursor.close()
+        conn.close()
+
+        return jsonify({'users': result}), 200
+
+    except Exception as e:
+        print(f"Error occurred: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+
+@app.route('/deleteUser', methods=['DELETE'])
+def delete_user():
+    try:
+        # Get the email from the request body
+        data = request.get_json()
+        email = data.get('email')
+
+        if not email:
+            return jsonify({'error': 'Email is required to delete a user'}), 400
+
+        # Establish connection to the database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # SQL query to delete user by email
+        cursor.execute("DELETE FROM userauth WHERE email = %s", (email,))
+
+        # Commit the transaction
+        conn.commit()
+
+        # Close database connection
+        cursor.close()
+        conn.close()
+
+        return jsonify({'message': f'User with email {email} has been deleted successfully'}), 200
+
+    except Exception as e:
+        print(f"Error occurred: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+
+
+@app.route("/getVerificationDetails", methods=["GET"])
+def getVerificationDetails():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Query to fetch all details from verificationdetails
+        cur.execute("SELECT * FROM verificationdetails")
+
+        # Fetch all rows
+        details = cur.fetchall()
+
+        # Define the keys (table column names)
+        keys = [
+            "id", "email", "phone_number", "gender", "plate_number", "driver_photo",
+            "license_photo", "car_photo", "plate_photo", "car_color", "driver_with_car_photo",
+            "status"
+        ]
+
+        # Format the data into an array of dictionaries
+        verification_data = [dict(zip(keys, row)) for row in details]
+
+        # Close the connection
+        cur.close()
+        conn.close()
+
+        # Return the result as JSON
+        return jsonify({"verificationdetails": verification_data}), 200
+
+    except Exception as e:
+        # Handle exceptions
+        return jsonify({"error": str(e)}), 500
+
+
+
+### end of admin side
+
+
+
 if __name__ == '__main__':
     try:
         # Initialize database schemas
