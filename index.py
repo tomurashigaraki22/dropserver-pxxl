@@ -18,49 +18,30 @@ def get_tables():
     tables = cur.fetchall()
     cur.close()
     return jsonify(tables)
-
 @app.route("/alter-table", methods=["GET"])
 def alterTable():
     try:
+        # Connect to the database
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # Check if the 'status' column exists in 'user_rides'
+        # Execute the DELETE query with proper SQL syntax
         cur.execute("""
-            SELECT COLUMN_NAME 
-            FROM INFORMATION_SCHEMA.COLUMNS 
-            WHERE TABLE_NAME = 'user_rides' AND COLUMN_NAME = 'status'
-        """)
-        status_column_exists = cur.fetchone()
+            DELETE FROM location WHERE email = %s
+        """, ('testing2@gmail.com',))  # Make sure to pass a tuple for single parameter
 
-        # If 'status' column doesn't exist, add it
-        if not status_column_exists:
-            cur.execute("""
-                ALTER TABLE user_rides
-                ADD COLUMN status VARCHAR(80) NOT NULL DEFAULT 'ongoing'
-            """)
-            conn.commit()  # Commit the changes
+        # Commit the changes
+        conn.commit()
 
-        # Check if the 'expires_at' column exists in 'subscriptions'
-        cur.execute("""
-            SELECT COLUMN_NAME 
-            FROM INFORMATION_SCHEMA.COLUMNS 
-            WHERE TABLE_NAME = 'subscriptions' AND COLUMN_NAME = 'expires_at'
-        """)
-        expires_at_column_exists = cur.fetchone()
+        # Close the cursor and connection
+        cur.close()
+        conn.close()
 
-        # If 'expires_at' column doesn't exist, add it
-        if not expires_at_column_exists:
-            cur.execute("""
-                ALTER TABLE subscriptions
-                ADD COLUMN expires_at TIMESTAMP DEFAULT NULL
-            """)
-            conn.commit()  # Commit the changes
-
-        return jsonify({"Message": "'status' and 'expires_at' columns added or already exist"}), 200
+        return jsonify({"Message": "Record(s) deleted successfully"}), 200
 
     except Exception as e:
         return jsonify({"Message": f"An error occurred: {str(e)}"}), 500
+
 
 
 
@@ -256,6 +237,55 @@ def check_subscription_status():
 
     # Return 409 status in JSON body if no active subscription is found
     return jsonify({"message": "No active subscription found.", "status": 409})
+
+
+@app.route('/get-ridess', methods=['GET'])
+def get_ridess():
+    user_email = request.args.get('email')
+    print(f"User_emial: {user_email}")
+
+    if not user_email:
+        return jsonify({"error": "Email parameter is required"}), 400
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Query to fetch rides where the user's email matches either email or driver_email
+        cur.execute("""
+            SELECT *
+            FROM user_rides
+            WHERE email = %s OR driver_email = %s
+        """, (user_email, user_email))
+
+        rides = cur.fetchall()
+
+        # Format the result as a list of dictionaries
+        rides_list = [
+            {
+                'id': row[0],
+                'email': row[1],
+                'driver_email': row[2],
+                'ride_id': row[3],
+                'created_at': row[4].isoformat(),  # Convert datetime to string
+                'status': row[5],
+                'reference_id': row[6]
+            }
+            for row in rides
+        ]
+
+        # Close the cursor and connection
+        cur.close()
+        conn.close()
+
+        return jsonify({"rides": rides_list, "status": 200}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+
+
+
     
 
 connected_users = {}

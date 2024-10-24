@@ -7,6 +7,7 @@ from flask_mail import Mail, Message
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_mysqldb import MySQL
+from engineio.payload import Payload
 
 load_dotenv()
 app = Flask(__name__)
@@ -23,6 +24,7 @@ app.config["MAIL_PASSWORD"] = "iaik logl kifo tzzw"  # Your email password
 app.config["MAIL_DEFAULT_SENDER"] = os.getenv("MAIL_DEFAULT_SENDER")  # Default sender email address
 
 # Initialize SocketIO with Eventlet
+Payload.max_decode_packets = 500
 socketio = SocketIO(app, max_http_buffer_size=10**7, async_mode='gevent')  # Use Eventlet as async mode
 db = SQLAlchemy(app)
 mysql = MySQL(app)
