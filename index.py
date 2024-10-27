@@ -1,9 +1,10 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_socketio import emit, join_room, leave_room, SocketIO
-from extensions.extensions import get_db_connection, socketio, app, mysql
+from extensions.extensions import get_db_connection, socketio, app, mysql, mail
+from flask_mail import Message
 from extensions.db_schemas import database_schemas
 from functions.auth import userSignup, login, verifyEmail, changePassword, get_balance, add_to_balance, driverLogin, driverSignup, checkVerificationStatus, uploadVerificationImages, saveLinksToDB
-from functions.riders import haversine, find_closest_rider, endRide, endRide2
+from functions.riders import haversine, find_closest_riders, endRide, endRide2
 import re
 import datetime
 from functions.generate_ids import generate_transaction_and_reference_ids
@@ -18,6 +19,15 @@ def get_tables():
     tables = cur.fetchall()
     cur.close()
     return jsonify(tables)
+
+@app.route("/get_connected_users", methods=["GET", "POST"])
+def getusersthen():
+    serializable_connected_users = {k: str(v) for k, v in connected_users.items()}
+    serializable_rider_sockets = {k: str(v) for k, v in rider_sockets.items()}
+
+    return jsonify({'message': serializable_connected_users, 'rider': serializable_rider_sockets})
+
+
 @app.route("/alter-table", methods=["GET"])
 def alterTable():
     try:
@@ -25,10 +35,13 @@ def alterTable():
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # Execute the DELETE query with proper SQL syntax
         cur.execute("""
-            DELETE FROM location WHERE email = %s
-        """, ('testing2@gmail.com',))  # Make sure to pass a tuple for single parameter
+            DELETE FROM location
+        """)
+        # Execute the ALTER TABLE queries to add new column
+
+        
+
 
         # Commit the changes
         conn.commit()
@@ -37,10 +50,11 @@ def alterTable():
         cur.close()
         conn.close()
 
-        return jsonify({"Message": "Record(s) deleted successfully"}), 200
+        return jsonify({"Message": "Columns added successfully"}), 200
 
     except Exception as e:
         return jsonify({"Message": f"An error occurred: {str(e)}"}), 500
+
 
 
 
@@ -340,9 +354,9 @@ def update_location(data):
         email = data.get('email')
         longitude = data.get('longitude')
         latitude = data.get('latitude')
-        user_type = data.get("type")
-        print(f"Updating Location For {user_type} {email}")
-
+        user_type = data.get("type")  # Make sure 'type' is provided correctly
+        choice = data.get('choice')
+        print(f"Updating Location For {user_type} {email} {choice}")
 
         if not email or not longitude or not latitude:
             emit('update_error', {'status': 400, 'message': 'Missing required parameters'})
@@ -358,20 +372,20 @@ def update_location(data):
 
         if count > 0:
             # Update the existing location details for the provided email
-            cur.execute("""
+            cur.execute(""" 
                 UPDATE location 
-                SET longitude = %s, latitude = %s 
+                SET longitude = %s, latitude = %s, driver_type = %s 
                 WHERE email = %s
-            """, (longitude, latitude, email))
+            """, (longitude, latitude, choice, email))  # Corrected order here
         else:
             # Insert a new record for the email if it doesn't exist
             if user_type:
-                cur.execute("""
-                    INSERT INTO location (email, longitude, latitude, user_type) 
-                    VALUES (%s, %s, %s, %s)
-                """, (email, longitude, latitude, user_type))
+                cur.execute(""" 
+                    INSERT INTO location (email, longitude, latitude, user_type, driver_type) 
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (email, longitude, latitude, user_type, choice))
             else:
-                cur.execute("""
+                cur.execute(""" 
                     INSERT INTO location (email, longitude, latitude, user_type) 
                     VALUES (%s, %s, %s, %s)
                 """, (email, longitude, latitude, "user"))
@@ -392,6 +406,7 @@ def update_location(data):
         emit('update_error', {'status': 500, 'message': 'Internal Server Error', 'error': str(e)})
 
 
+
 @socketio.on('get_all_locations')
 def get_all_locations(data):
     try:
@@ -409,7 +424,7 @@ def get_all_locations(data):
 
         # Fetch all locations except for the user's own location
         cur.execute("""
-            SELECT email, longitude, latitude, user_type 
+            SELECT email, longitude, latitude, user_type, driver_type
             FROM location 
             WHERE email != %s
         """, (email,))
@@ -428,6 +443,7 @@ def get_all_locations(data):
                 'longitude': float(row[1]),  # Convert Decimal to float
                 'latitude': float(row[2]),   # Convert Decimal to float
                 'user_type': row[3],
+                'choice': row[4],
             }
             for row in locations
         ]
@@ -446,6 +462,8 @@ rider_sockets = {}
 @socketio.on('book_ride')
 def book_ride(data):
     print('Starting book ride...')
+    choice = data.get("choice")
+    phone_no = data.get("phone_no")
     user_email = data.get('email')
     user_location = data.get('location_coords')  # User's location as {'latitude': ..., 'longitude': ...}
     destinationDetails = data.get("dest_details")
@@ -455,22 +473,21 @@ def book_ride(data):
 
     print(f"Email: {user_email}, Location: {user_location}, DestinationDetails: {destinationDetails}, amount: {amount}, destText: {destText}, Destination_location: {destination_location}")
 
-    available_riders = data.get('allRiders')  # Should be fetched from your database
     rejected_riders = data.get('rejected_riders', [])  # Default to an empty list if not provided
-    print(f"Available Riders: {available_riders}, Rejected Riders: {rejected_riders}")
 
-    if not available_riders:
+    # Find the closest riders, sorted from closest to farthest
+    sorted_riders = find_closest_riders(user_location=user_location, user_email=user_email, rejected_riders=rejected_riders, choice=choice)
+    print(f"Sorted riders from closest to farthest: {sorted_riders}")
+
+    if not sorted_riders:
         emit('ride_request_error', {'status': 404, 'message': 'No available riders found'})
         return
 
-    # Find the closest rider, passing rejected_riders if available
-    closest_rider = find_closest_rider(user_location=user_location, user_email=user_email, rejected_riders=rejected_riders)
-    print(f"Closest rider is: {closest_rider}")
-
-    if closest_rider:
-        rider_email = closest_rider['email']
+    # Try to find the first connected rider in the sorted list
+    for rider in sorted_riders:
+        rider_email = rider['email']
         rider_sids = connected_users.get(rider_email)
-        print(f"Closest rider email: {rider_email}")
+        print(f"Checking rider email: {rider_email}")
 
         if rider_sids:
             # Use the first socket ID from the set to send the message
@@ -482,14 +499,18 @@ def book_ride(data):
                 'details': destinationDetails,
                 'amount': amount,
                 'Place': destText,
-                'destination': destination_location
+                'destination': destination_location,
+                'phone_no': phone_no
             }, to=rider_sid)  # Send request to the specific rider
             emit('ride_request_sent', {'status': 200, 'message': 'Ride request sent to the rider'})
+            return  # Exit after successfully sending the request to a connected rider
         else:
-            print('Rider not found in connected users')
-            emit('ride_request_error', {'status': 404, 'message': 'Rider not found in connected users'})
-    else:
-        emit('ride_request_error', {'status': 404, 'message': 'No suitable rider found'})
+            print(f"Rider {rider_email} not found in connected users, moving to the next rider.")
+
+    # If no connected rider was found
+    print('No connected riders found')
+    emit('ride_request_error', {'status': 404, 'message': 'No connected riders found'})
+    return
 
 
 
@@ -541,28 +562,31 @@ def handle_accept_ride(data):
 
     print(f"Driver {driver_email} and User {user_email} automatically joined ride {ride_id}")
 
-
-@socketio.on("start_ride")
-def startRide(data):
+@app.route("/start_ride", methods=["POST"])
+def start_ride():
     try:
+        data = request.get_json()
         user_email = data.get('user_email')
         driver_email = data.get('driver_email')
-        
+
         if not user_email or not driver_email:
+            print(f"Missing parameters: {user_email} {driver_email}")
             return jsonify({"Message": "Missing required parameters"}), 400
 
-        # Generate a ride_id
+        # Generate a ride_id and transaction details
         ride_id = f"{extract_username(driver_email)}_{extract_username(user_email)}"
         ref_id, transaction_id = generate_transaction_and_reference_ids()
 
-        # Get the connection SIDs for both the driver and user
-        user_sid = connected_users.get(user_email)
-        driver_sid = connected_users.get(driver_email)
+        # Get SIDs for user and driver
+        user_sids = connected_users.get(user_email)
+        driver_sids = connected_users.get(driver_email)
 
-        if not user_sid or not driver_sid:
+        # Validate SID connections for both user and driver
+        if not user_sids or not driver_sids:
+            print(f"User or driver not connected. User SID: {user_sids}, Driver SID: {driver_sids}")
             return jsonify({"Message": "One or both users are not connected"}), 400
 
-        # Check if a ride already exists for this combination
+        # Database operations: check or create ride record
         conn = get_db_connection()
         cur = conn.cursor()
 
@@ -573,18 +597,39 @@ def startRide(data):
         """, (ride_id, driver_email, user_email))
         existing_ride = cur.fetchone()
 
-        if existing_ride:
-            if existing_ride[0] == 'ongoing':
-                return jsonify({"Message": "Ride is already ongoing"}), 400
+        ride_data = {
+            'ride_id': ride_id,
+            'driver_email': driver_email,
+            'user_email': user_email,
+            'ref_id': ref_id,
+        }
+
+        if existing_ride and existing_ride[0] == 'ongoing':
+            print(f"Ride is already ongoing: {existing_ride}")
+            user_sid = next(iter(connected_users.get(user_email)))
+            if user_sid:
+                socketio.emit("ride_started", ride_data, to=user_sid)
+                print(f"Emitted to user SID: {user_sid}")
             else:
-                # If the ride is not ongoing, update its status to 'ongoing'
-                cur.execute("""
-                    UPDATE user_rides 
-                    SET status = %s, reference_id = %s 
-                    WHERE ride_id = %s AND driver_email = %s AND email = %s
-                """, ('ongoing', ref_id, ride_id, driver_email, user_email))
+                print(f"User SID for {user_email} not found in connected users.")
+
+            # Emit to driver
+            driver_sid = next(iter(connected_users.get(driver_email)))
+            if driver_sid:
+                socketio.emit("ride_started", ride_data, to=driver_sid)
+                print(f"Emitted to driver SID: {driver_sid}")
+            else:
+                print(f"Driver SID for {driver_email} not found in connected users.")
+            return jsonify({"Message": "Ride is already ongoing"}), 400
+        elif existing_ride:
+            # Update status if ride exists but is not ongoing
+            cur.execute("""
+                UPDATE user_rides 
+                SET status = %s, reference_id = %s 
+                WHERE ride_id = %s AND driver_email = %s AND email = %s
+            """, ('ongoing', ref_id, ride_id, driver_email, user_email))
         else:
-            # If the ride doesn't exist, create a new one with 'ongoing' status
+            # Create a new ride record
             cur.execute("""
                 INSERT INTO user_rides (email, driver_email, ride_id, reference_id, status) 
                 VALUES (%s, %s, %s, %s, %s)
@@ -592,23 +637,136 @@ def startRide(data):
 
         conn.commit()
 
-        # Emit the "ride_started" event to both user and driver
-        ride_data = {
-            'ride_id': ride_id,
-            'driver_email': driver_email,
-            'user_email': user_email
-        }
+        # Emit "ride_started" event to both user and driver
+        
 
         # Emit to user
-        socketio.emit("ride_started", ride_data, to=user_sid)
-        
+        user_sid = next(iter(connected_users.get(user_email)))
+        if user_sid:
+            socketio.emit("ride_started", ride_data, to=user_sid)
+            print(f"Emitted to user SID: {user_sid}")
+        else:
+            print(f"User SID for {user_email} not found in connected users.")
+
         # Emit to driver
-        socketio.emit("ride_started", ride_data, to=driver_sid)
+        driver_sid = next(iter(connected_users.get(driver_email)))
+        if driver_sid:
+            socketio.emit("ride_started", ride_data, to=driver_sid)
+            print(f"Emitted to driver SID: {driver_sid}")
+        else:
+            print(f"Driver SID for {driver_email} not found in connected users.")
 
         return jsonify({"Message": "Ride started successfully"}), 200
 
     except Exception as e:
+        print(f"Error in start_ride: {str(e)}")
         return jsonify({"Message": f"An error occurred: {str(e)}"}), 500
+    
+@socketio.on("start_ride")
+def startRide(data):
+    try:
+        user_email = data.get('user_email')
+        driver_email = data.get('driver_email')
+        
+        if not user_email or not driver_email:
+            print(f"Missing parameters: {user_email} {driver_email}")
+            return {"Message": "Missing required parameters"}, 400
+
+        # Generate a ride_id and transaction details
+        ride_id = f"{extract_username(driver_email)}_{extract_username(user_email)}"
+        ref_id, transaction_id = generate_transaction_and_reference_ids()
+
+        # Get SIDs for user and driver
+        user_sids = connected_users.get(user_email)
+        driver_sids = connected_users.get(driver_email)
+
+        # Validate SID connections for both user and driver
+        if not user_sids or not driver_sids:
+            print(f"User or driver not connected. User SID: {user_sids}, Driver SID: {driver_sids}")
+            return {"Message": "One or both users are not connected"}, 400
+
+        # Database operations: check or create ride record
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT status FROM user_rides 
+            WHERE ride_id = %s AND driver_email = %s AND email = %s
+            ORDER BY created_at DESC LIMIT 1
+        """, (ride_id, driver_email, user_email))
+        existing_ride = cur.fetchone()
+
+        ride_data = {
+            'ride_id': ride_id,
+            'driver_email': driver_email,
+            'user_email': user_email,
+            'ref_id': ref_id,
+        }
+
+        if existing_ride and existing_ride[0] == 'ongoing':
+            print(f"Ride already ongoing: {existing_ride}")
+            user_sid = next(iter(connected_users.get(user_email)))
+            print(user_sid)
+            if user_sid:
+                socketio.emit("ride_started", ride_data, to=user_sid)
+                print(f"Emitted to user SID: {user_sid}")
+            else:
+                print(f"User SID for {user_email} not found in connected users.")
+
+            # Emit to driver
+            print()
+            driver_sid = next(iter(connected_users.get(driver_email)))
+            print(driver_sid)
+            if driver_sid:
+                socketio.emit("ride_started", ride_data, to=driver_sid)
+                print(f"Emitted to driver SID: {driver_sid}")
+            else:
+                print(f"Driver SID for {driver_email} not found in connected users.")
+            return {"Message": "Ride is already ongoing"}, 400
+        elif existing_ride:
+            # Update status if ride exists but is not ongoing
+            cur.execute("""
+                UPDATE user_rides 
+                SET status = %s, reference_id = %s 
+                WHERE ride_id = %s AND driver_email = %s AND email = %s
+            """, ('ongoing', ref_id, ride_id, driver_email, user_email))
+        else:
+            # Create a new ride record
+            cur.execute("""
+                INSERT INTO user_rides (email, driver_email, ride_id, reference_id, status) 
+                VALUES (%s, %s, %s, %s, %s)
+            """, (user_email, driver_email, ride_id, ref_id, 'ongoing'))
+
+        conn.commit()
+
+        # Emit "ride_started" event to both user and driver
+        
+
+        # Emit to user
+        user_sid = next(iter(connected_users.get(user_email)))
+        print(user_sid)
+        if user_sid:
+            socketio.emit("ride_started", ride_data, to=user_sid)
+            print(f"Emitted to user SID: {user_sid}")
+        else:
+            print(f"User SID for {user_email} not found in connected users.")
+
+        # Emit to driver
+        print()
+        driver_sid = next(iter(connected_users.get(driver_email)))
+        print(driver_sid)
+        if driver_sid:
+            socketio.emit("ride_started", ride_data, to=driver_sid)
+            print(f"Emitted to driver SID: {driver_sid}")
+        else:
+            print(f"Driver SID for {driver_email} not found in connected users.")
+
+        return {"Message": "Ride started successfully"}, 200
+
+    except Exception as e:
+        print(f"Error in startRide: {str(e)}")
+        return {"Message": f"An error occurred: {str(e)}"}, 500
+
     
 @socketio.on("complete_ride")
 def completeRide(data):
@@ -692,6 +850,7 @@ def handle_reject_ride(data):
         destination_location = data.get("dest_coords")
         amount = data.get("amount")
         destText = data.get("destination")
+        choice = data.get("choice")
         
         print(f"UserLocation: {user_location}, DriverEmail: {driver_email}, UserEmail: {user_email}")
 
@@ -706,7 +865,7 @@ def handle_reject_ride(data):
             rejected_riders[user_email] = [driver_email]
 
         # Find the next closest available driver excluding rejected drivers
-        next_closest_rider = find_closest_rider(user_location, user_email, rejected_riders[user_email])
+        next_closest_rider = find_closest_riders(user_location, user_email, rejected_riders[user_email], choice)
         print(next_closest_rider)
 
         if not next_closest_rider:
@@ -804,7 +963,7 @@ def endedTheRide(data):
         return
 
     # Assuming connected_users is a dictionary with driver_email as key and a list of SIDs as value
-    driver_sids = connected_users.get(driver_email)
+    driver_sids = next(iter(connected_users.get(driver_email)))
 
     if driver_sids:
         # Emit the 'endedRide' event to all SIDs linked to the driver_email
@@ -814,12 +973,32 @@ def endedTheRide(data):
 @socketio.on('joinRoom')
 def handleJoinRoom(room):
     join_room(room)
-    emit('message', {'text': f'User has joined the room: {room}'}, room=room)
+    emit('newRoomMember', {'text': f'User has joined the room: {room}'}, room=room)
 
 @socketio.on('sendMessage')
 def handleSendMessage(data):
+    print("Received data:", data)  # Log the received data
+
     room = data['room']
+    receiver = data['receiver']
+    
+    # Get the socket ID of the receiver
+    sid = connected_users.get(receiver)
+    
+    # Check if the receiver is connected
+    if sid:
+        sid_send = next(iter(sid))  # Assuming sid is a set or list of socket IDs
+        
+        # Emit the message to the receiver
+        socketio.emit("message_received", {
+            "message": data['message'],  # This will work if 'message' is correctly sent
+            "sender": data['sender'],     # Optional: include sender info if needed
+        }, to=sid_send)
+
+    # Emit the message to all users in the room
     emit('message', data, room=room)  # Send message to all in the room
+
+
 
 
 @socketio.on("get_driver_details")
@@ -995,8 +1174,84 @@ def getSubscribedDriversInfo():
         # Handle exceptions and return error
         return jsonify({"error": str(e)}), 500
 
-@app.route('/updateVerificationStatus/<int:id>', methods=['POST'])
-def update_verification_status(id):
+
+def send_status_update_email(recipient_email, new_status):
+    html_body = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Verification Status Update</title>
+        <style>
+            body {{
+                margin: 0;
+                padding: 0;
+                background-color: #fff;
+                font-family: Arial, sans-serif;
+            }}
+            .container {{
+                width: 100%;
+                padding: 20px;
+                background-color: #F27E05;
+            }}
+            .content {{
+                max-width: 600px;
+                margin: 0 auto;
+                background-color: #fff;
+                border-radius: 5px;
+                padding: 20px;
+                box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            }}
+            h1 {{
+                color: #000;
+                font-size: 24px;
+                margin-bottom: 10px;
+            }}
+            p {{
+                color: #333;
+                font-size: 16px;
+                line-height: 1.5;
+            }}
+            .status {{
+                font-weight: bold;
+                font-size: 18px;
+            }}
+            .footer {{
+                margin-top: 20px;
+                font-size: 14px;
+                color: #555;
+            }}
+            a {{
+                color: #F27E05;
+                text-decoration: none;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="content">
+                <h1>Verification Status Update</h1>
+                <p>Dear User,</p>
+                <p>Your verification status has been updated.</p>
+                <p class="status">New Status: <strong>{new_status}</strong></p>
+                <p>Thank you for your patience.</p>
+                <p>Best regards,<br>The Team</p>
+                <div class="footer">
+                    <p>For any inquiries, please contact us at <a href="mailto:support@example.com">support@example.com</a></p>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    msg = Message("Update Status On Verification", recipients=[recipient_email])
+    msg.html = html_body
+    mail.send(msg)
+
+@app.route('/updateVerificationStatus/<string:email>', methods=['POST'])
+def update_verification_status(email):
     try:
         data = request.get_json()
         new_status = data['status']
@@ -1005,8 +1260,11 @@ def update_verification_status(id):
         cur = conn.cursor()
 
         # Update the status in the database
-        cur.execute("UPDATE verificationdetails SET status = %s WHERE id = %s", (new_status, id))
+        cur.execute("UPDATE verificationdetails SET status = %s WHERE email = %s", (new_status, email))
         conn.commit()
+
+        # Send email notification
+        send_status_update_email(email, new_status)
 
         cur.close()
         conn.close()

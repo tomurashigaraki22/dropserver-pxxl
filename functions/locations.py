@@ -8,6 +8,7 @@ def saveLocationToDb():
         longitude = request.form.get("longitude")
         latitude = request.form.get("latitude")
         email = request.form.get('email')
+        choice = request.form.get("choice")
 
         if not longitude or not latitude or not email:
             return jsonify({'status': 400, 'message': 'Missing required parameters'}), 400
@@ -18,9 +19,9 @@ def saveLocationToDb():
 
         # Insert location data into the 'location' table
         cur.execute("""
-            INSERT INTO location (email, longitude, latitude, user_type) 
+            INSERT INTO location (email, longitude, latitude, user_type, driver_type) 
             VALUES(%s, %s, %s, %s)
-        """, (email, longitude, latitude, "user"))
+        """, (email, longitude, latitude, "user", choice))
 
         # Commit the transaction and close the connection
         conn.commit()

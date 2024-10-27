@@ -116,17 +116,15 @@ def haversine(coord1, coord2):
 
     return R * c  # Distance in kilometers
 
-def find_closest_rider(user_location, user_email, rejected_riders):  
-    closest_rider = None
-    min_distance = float('inf')
 
+def find_closest_riders(user_location, user_email, rejected_riders, choice):
     # Get database connection
     conn = get_db_connection()
     cur = conn.cursor()
 
     # Execute the query to fetch all driver locations except the current user
     cur.execute("""
-        SELECT email, longitude, latitude, user_type 
+        SELECT email, longitude, latitude, user_type, driver_type
         FROM location 
         WHERE email != %s
     """, (user_email,))
@@ -144,18 +142,31 @@ def find_closest_rider(user_location, user_email, rejected_riders):
             'longitude': float(row[1]),  # Convert Decimal to float
             'latitude': float(row[2]),   # Convert Decimal to float
             'user_type': row[3],
+            'choice': row[4],
         }
         for row in locations
     ]
 
+    # List to store drivers along with their distance to the user
+    riders_with_distance = []
+    print(f"Available Riders: {available_riders}")
+
     # Iterate through the list of available riders (from the DB result)
     for rider in available_riders:
-        if rider['user_type'] == 'driver' and rider['email'] not in rejected_riders:  # Filter drivers and exclude rejected ones
+        if rider['user_type'] == 'driver' and rider['email'] not in rejected_riders and rider['choice'] == choice:
             rider_location = (rider['latitude'], rider['longitude'])
             distance = haversine((user_location['latitude'], user_location['longitude']), rider_location)
 
-            if distance < min_distance:
-                min_distance = distance
-                closest_rider = rider
+            # Append rider with their distance to the list
+            riders_with_distance.append({
+                'email': rider['email'],
+                'longitude': rider['longitude'],
+                'latitude': rider['latitude'],
+                'distance': distance
+            })
 
-    return closest_rider
+    # Sort riders by distance from the user (closest to farthest)
+    sorted_riders = sorted(riders_with_distance, key=lambda x: x['distance'])
+
+    return sorted_riders
+
