@@ -170,3 +170,38 @@ def find_closest_riders(user_location, user_email, rejected_riders, choice):
 
     return sorted_riders
 
+
+def get_rider_location_by_email(rider_email):
+    try:
+        # Get database connection
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Execute the query to fetch the rider's location based on their email
+        cur.execute("""
+            SELECT email, longitude, latitude
+            FROM location
+            WHERE email = %s
+        """, (rider_email,))
+
+        # Fetch the result
+        result = cur.fetchone()
+
+        # Check if a location was found for the rider
+        if result:
+            # Format the result as a dictionary
+            rider_location = {
+                'email': result[0],
+                'longitude': float(result[1]),  # Convert Decimal to float if needed
+                'latitude': float(result[2])    # Convert Decimal to float if needed
+            }
+        else:
+            rider_location = None  # No location found
+
+    except Exception as e:
+        # Log the error or handle it as needed
+        print(f"Error fetching location for email {rider_email}: {e}")
+        rider_location = None
+
+    return rider_location
+

@@ -4,7 +4,7 @@ from extensions.extensions import get_db_connection, socketio, app, mysql, mail
 from flask_mail import Message
 from extensions.db_schemas import database_schemas
 from functions.auth import userSignup, login, verifyEmail, changePassword, get_balance, add_to_balance, driverLogin, driverSignup, checkVerificationStatus, uploadVerificationImages, saveLinksToDB
-from functions.riders import haversine, find_closest_riders, endRide, endRide2
+from functions.riders import haversine, find_closest_riders, endRide, endRide2, get_rider_location_by_email
 import re
 import datetime
 from functions.generate_ids import generate_transaction_and_reference_ids
@@ -524,6 +524,7 @@ def extract_username(email):
 def handle_accept_ride(data):
     user_email = data.get('user_email')
     driver_email = data.get('driver_email')
+    ride_reference, tx_reference_id = generate_transaction_and_reference_ids()
 
     # Generate the ride ID (could be used for tracking)
     ride_id = f"{extract_username(driver_email)}_{extract_username(user_email)}"
@@ -536,7 +537,8 @@ def handle_accept_ride(data):
         'ride_id': ride_id,
         'message': f"Joined ride {ride_id}",
         'driver_email': driver_email,
-        'email': user_email
+        'email': user_email,
+        'ride_reference': ride_reference
     }, to=request.sid)  # Emit back to the driver who initiated the ride request
 
     # Automatically add the user (rider) to the ride
@@ -547,12 +549,15 @@ def handle_accept_ride(data):
         try:
             user_sid = next(iter(connected_users.get(user_email)))  # Get one session ID from the set
             print(f"UserSID: {user_sid}")
+            driver_location = get_rider_location_by_email(rider_email=driver_email)
             
             # Notify the user directly to "automatically" join the ride
             socketio.emit('auto_join_ride', {
                 'ride_id': ride_id,
                 'message': f"You have automatically joined the ride {ride_id}",
-                'driver_email': driver_email
+                'driver_email': driver_email,
+                'driver_location': driver_location,
+                'ride_reference': ride_reference
             }, to=user_sid)  # Use the session ID to emit the message directly
 
         except StopIteration:
@@ -661,6 +666,130 @@ def start_ride():
     except Exception as e:
         print(f"Error in start_ride: {str(e)}")
         return jsonify({"Message": f"An error occurred: {str(e)}"}), 500
+
+
+@socketio.on("ride_destination_reached")
+def rideDestReached(data):
+    try:
+        user_email = data.get('user_email')
+
+        if not user_email:
+            print("Missing user_email")
+            return {"Message": "Missing required params"}, 400
+
+        # Retrieve the user's socket IDs from the connected users dictionary
+        user_sids = connected_users.get(user_email)
+        
+        # Check if the user is connected
+        if user_sids:
+            for sid in user_sids:
+                # Emit a "destination_reached" event to the user
+                socketio.emit("destination_reached", {"Message": "Destination has been reached"}, to=sid)
+            return {"Message": "Notification sent to user"}, 200
+        else:
+            print(f"No active connections for user: {user_email}")
+            return {"Message": "User not connected"}, 404
+    except Exception as e:
+        print(f"Error in rideDestReached: {e}")
+        return {"Message": "Internal server error"}, 500
+
+
+@socketio.on("arrived_customer")
+def arrivedCustomerLocation(data):
+    try:
+        user_email = data.get("user_email")
+        driver_email = data.get("driver_email")
+
+        if not user_email or not driver_email:
+            print(f"Missing one of the params: user_email={user_email}, driver_email={driver_email}")
+            return {"Message": "Missing required params"}, 400
+        
+        user_sids = connected_users.get(user_email)
+        if user_sids:
+            for sid in user_sids:
+                socketio.emit("reached_customer", {"Message": "Driver has arrived at your location"}, to=sid)
+            return {"Message": "Notification sent to all connected instances of user"}, 200
+        else:
+            print(f"No active connections for user: {user_email}")
+            return {"Message": "User not connected"}, 404
+    except Exception as e:
+        print(f"Error in arrivedCustomerLocation: {e}")
+        return {"Message": "Internal server error"}, 500
+
+
+
+
+@socketio.on('initiateCall')
+def handle_initiate_call(data):
+    try:
+        # Extract required data
+        calling = data.get('calling')
+        caller = data.get("caller")
+        callId = data.get("callId")
+
+
+        # Check if necessary data is provided
+        if not calling or not caller or not callId:
+            print("Missing required fields in 'initiateCall' data.")
+            return {"status": "error", "message": "Missing required fields"}, 400
+
+        # Retrieve the receiver's session IDs
+        receiver_sids = connected_users.get(calling)
+        
+        if not receiver_sids:
+            print(f"No active session found for user: {calling}")
+            return {"status": "error", "message": "Receiver not connected"}, 404
+
+        # Emit the incoming call event to each session ID of the receiver
+        sid = next(iter(receiver_sids))
+        socketio.emit("incomingCall", {
+            "callId": callId,
+            "caller": caller
+        }, to=sid)
+        print(f"Incoming call sent to {calling} (session ID: {sid})")
+
+        # Success response after all emits are sent
+        return {"status": "success", "message": "Call initiated"}, 200
+
+    except Exception as e:
+        # Log and return in case of any exception
+        print(f"Error in 'handle_initiate_call': {e}")
+        return {"status": "error", "message": str(e)}, 500
+
+
+
+@socketio.on('answerCall')
+def handle_answer_call(data):
+    receiver_socket_id = connected_users.get(data['to'])
+    sid = next(iter(receiver_socket_id))
+    if receiver_socket_id:
+        socketio.emit('callAnswer', {'answer': data['answer']}, to=sid)  # Notify caller
+        print(f'Call answered by {data["to"]}')
+
+@socketio.on('iceCandidate')
+def handle_ice_candidate(data):
+    print(f"Data: {data}")
+    receiver_socket_id = connected_users.get(data['to'])  # Get receiver from data
+
+    if receiver_socket_id:
+        for sid in receiver_socket_id:
+            print(f"ice candidate: {receiver_socket_id}")
+            socketio.emit('iceCandidates', {'candidate': data['candidate']}, to=sid)  # Send ICE candidate
+        print(f'ICE candidate sent to {data["to"]}')
+    else:
+        print(f"No active connection found for {data['to']}. ICE candidate not sent.")
+
+
+@socketio.on('callResponse')
+def handle_call_response(data):
+    if data['accept']:
+        # Call accepted logic (e.g., create a connection)
+        print('Call accepted')
+    else:
+        # Call rejected logic
+        print('Call rejected')
+
+
     
 @socketio.on("start_ride")
 def startRide(data):
@@ -975,28 +1104,88 @@ def handleJoinRoom(room):
     join_room(room)
     emit('newRoomMember', {'text': f'User has joined the room: {room}'}, room=room)
 
+@app.route('/get-messages', methods=['POST'])
+def get_messages():
+    conn = get_db_connection()
+    ride_reference = request.form.get('ride_reference')  # Retrieve ride_reference from FormData
+
+    if not ride_reference:
+        return jsonify({"error": "ride_reference is required", "status": 400})
+
+    try:
+        cur = conn.cursor()  # Using cur instead of conn.cursor() context manager
+        cur.execute("""
+            SELECT email, receiver_email, message, created_at 
+            FROM messages 
+            WHERE unique_identifier = %s 
+            ORDER BY created_at ASC
+        """, (ride_reference,))
+        messages = cur.fetchall()
+        
+        # Format messages into JSON
+        formatted_messages = [
+            {
+                "sender": message[0],  # email
+                "receiver": message[1],  # receiver_email
+                "message": message[2],  # message
+                "timestamp": message[3].strftime('%Y-%m-%d %H:%M:%S')  # created_at
+            }
+            for message in messages
+        ]
+        
+        return jsonify({"messages": formatted_messages, "status": 200})
+    except Exception as e:
+        print("Error retrieving messages:", e)
+        return jsonify({"error": "Failed to retrieve messages", "status": 500})
+
 @socketio.on('sendMessage')
 def handleSendMessage(data):
     print("Received data:", data)  # Log the received data
 
     room = data['room']
     receiver = data['receiver']
-    
-    # Get the socket ID of the receiver
-    sid = connected_users.get(receiver)
-    
-    # Check if the receiver is connected
-    if sid:
-        sid_send = next(iter(sid))  # Assuming sid is a set or list of socket IDs
-        
-        # Emit the message to the receiver
-        socketio.emit("message_received", {
-            "message": data['message'],  # This will work if 'message' is correctly sent
-            "sender": data['sender'],     # Optional: include sender info if needed
-        }, to=sid_send)
+    message = data['message']
+    sender = data['sender']
+    ride_reference = data['ride_reference']
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-    # Emit the message to all users in the room
-    emit('message', data, room=room)  # Send message to all in the room
+    # Insert the message into the database
+    try:
+        cur.execute("""
+            INSERT INTO messages (email, receiver_email, unique_identifier, message)
+            VALUES (%s, %s, %s, %s)
+        """, (sender, receiver, ride_reference, message))
+        conn.commit()
+        print("Message saved to database.")
+    except Exception as e:
+        print("Error saving message to database:", e)
+        conn.rollback()
+
+    # Get the socket IDs of the receiver and sender from the connected_users dictionary
+    sid_receiver = connected_users.get(receiver)
+    sid_sender = connected_users.get(sender)
+
+    # Emit the message to the receiver if they are connected
+    if sid_receiver:
+        sid_receiver_send = next(iter(sid_receiver))  # Assuming sid_receiver is a set or list of socket IDs
+        socketio.emit("message_received", {
+            "message": message,
+            "sender": sender,
+        }, to=sid_receiver_send)
+
+    # Emit the message to the sender for confirmation or feedback, if they are connected
+    if sid_sender:
+        sid_sender_send = next(iter(sid_sender))
+        socketio.emit("message_received", {
+            "message": message,
+            "sender": sender,
+        }, to=sid_sender_send)
+
+    emit("message", {
+        "message": message,
+        "sender": sender
+    }, room=room)
 
 
 

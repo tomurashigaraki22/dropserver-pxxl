@@ -71,6 +71,16 @@ def database_schemas():
                 status VARCHAR(80) NOT NULL DEFAULT 'pending'
             );
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS messages(
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                email VARCHAR(255) NOT NULL,
+                receiver_email VARCHAR(255) NOT NULL,
+                unique_identifier VARCHAR(255) NOT NULL,
+                message VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         cur.execute(""" 
             CREATE TABLE IF NOT EXISTS subscriptions (
                 id INT AUTO_INCREMENT PRIMARY KEY,
