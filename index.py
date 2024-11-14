@@ -8,6 +8,7 @@ from functions.riders import haversine, find_closest_riders, endRide, endRide2, 
 import re
 import datetime
 from functions.generate_ids import generate_transaction_and_reference_ids
+import requests
 
 ###testing purposes###
 
@@ -1247,6 +1248,37 @@ def getDriverDetails(data):
         emit('server_error', {
             'message': 'An error occurred while fetching driver details'
         })
+
+
+NATIVE_NOTIFY_APP_ID = 24571
+NATIVE_NOTIFY_APP_TOKEN = "oEmfkfHLweZ9dxFo6Udghx"
+
+@socketio.on("send_notification")
+def sendNotification(data):
+    # Extract the details from the data
+    subID = data.get("subID")  # The unique user ID
+    title = data.get("title", "Notification Title")  # Default title if none provided
+    message = data.get("message", "Notification Message")  # Default message if none provided
+
+    # Prepare the payload for the POST request
+    payload = {
+        "subID": subID,
+        "appId": NATIVE_NOTIFY_APP_ID,
+        "appToken": NATIVE_NOTIFY_APP_TOKEN,
+        "title": title,
+        "message": message
+    }
+
+    # Send the POST request
+    try:
+        response = requests.post("https://app.nativenotify.com/api/indie/notification", json=payload)
+        response.raise_for_status()  # Raise an error for HTTP error responses
+        print("Notification sent successfully:", response.json())
+    except requests.exceptions.RequestException as e:
+        print("Failed to send notification:", e)
+
+    # Emit a response to the client (optional)
+    emit("notification_response", {"status": "sent" if response.status_code == 200 else "failed"})
 
 
 
