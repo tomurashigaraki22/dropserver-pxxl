@@ -7,10 +7,60 @@ from functions.auth import userSignup, login, verifyEmail, changePassword, get_b
 from functions.riders import haversine, find_closest_riders, endRide, endRide2, get_rider_location_by_email
 import re
 import datetime
+import json
+from functions import token04
 from functions.generate_ids import generate_transaction_and_reference_ids
 import requests
+from twilio.rest import Client
 
 ###testing purposes###
+
+account_sid = 'AC1fddc1606c1c2348da6b5f053105ed74'  # Replace with your Account SID
+auth_token = '184afd262a3f28fb7d19940a65b89173'  # Replace with your Auth Token
+verify_service_sid = 'VAeb468b05e465cc3f8ff7d22af6a06753'  # Replace with your Service SID
+client = Client(account_sid, auth_token)
+
+@app.route('/send-otp', methods=['POST'])
+def send_otp():
+    data = request.get_json()
+    print(f"Data: {data}")
+    phone_number = data.get('phone_number')
+    
+    if not phone_number:
+        return jsonify({"error": "Phone number is required"}), 400
+
+    try:
+        # Send OTP via SMS
+        verification = client.verify.v2.services(verify_service_sid) \
+            .verifications \
+            .create(to=phone_number, channel='sms')
+        
+        return jsonify({"message": "OTP sent", "sid": verification.sid}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Endpoint to verify OTP
+@app.route('/verify-otp', methods=['POST'])
+def verify_otp():
+    data = request.get_json()
+    phone_number = data.get('phone_number')
+    code = data.get('code')
+    
+    if not phone_number or not code:
+        return jsonify({"error": "Phone number and OTP code are required"}), 400
+
+    try:
+        # Check if OTP is valid
+        verification_check = client.verify.v2.services(verify_service_sid) \
+            .verification_checks \
+            .create(to=phone_number, code=code)
+
+        if verification_check.status == "approved":
+            return jsonify({"message": "OTP verified successfully"}), 200
+        else:
+            return jsonify({"error": "Invalid OTP"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/tables', methods=['GET'])
 def get_tables():
@@ -1258,6 +1308,7 @@ def sendNotification(data):
     # Extract the details from the data
     subID = data.get("subID")  # The unique user ID
     title = data.get("title", "Notification Title")  # Default title if none provided
+    print(f"Data; {data}")
     message = data.get("message", "Notification Message")  # Default message if none provided
 
     # Prepare the payload for the POST request
@@ -1268,6 +1319,7 @@ def sendNotification(data):
         "title": title,
         "message": message
     }
+    print(f"Payload: {payload}")
 
     # Send the POST request
     try:
@@ -1281,7 +1333,63 @@ def sendNotification(data):
     emit("notification_response", {"status": "sent" if response.status_code == 200 else "failed"})
 
 
+ERROR_CODE_SUCCESS = 0
+ERROR_CODE_APP_ID_INVALID = 1
+ERROR_CODE_USER_ID_INVALID = 3
+ERROR_CODE_SECRET_INVALID = 5
+ERROR_CODE_EFFECTIVE_TIME_IN_SECONDS_INVALID = 6
 
+@app.route('/generate_token', methods=['POST'])
+def generate_token():
+    print(f"Generating token")
+    # Get data from request body
+    data = request.json
+    app_id = data.get('app_id')
+    user_id = data.get('user_id')
+    secret = data.get('secret')
+    effective_time_in_seconds = data.get('effective_time_in_seconds')
+    room_id = data.get('room_id')
+    privilege = data.get('privilege', {1: 1, 2: 1})  # Default privilege if not provided
+    
+    # Basic validation
+    if not app_id or not user_id or not secret or not effective_time_in_seconds:
+        return jsonify({'error_code': ERROR_CODE_APP_ID_INVALID, 'error_message': 'Missing required parameters'}), 400
+    
+    try:
+        # Prepare payload for the token generation
+        payload = {
+            "room_id": room_id,
+            "privilege": privilege,  # Privileges are passed directly as is
+            "stream_id_list": None  # You can add stream ids here if necessary
+        }
+
+        # Generate token
+        token_info = token04.generate_token04(
+            app_id=app_id,
+            user_id=user_id,
+            secret=secret,
+            effective_time_in_seconds=effective_time_in_seconds,
+            payload=json.dumps(payload)
+        )
+
+        # Check if token generation is successful
+        if token_info.error_code == ERROR_CODE_SUCCESS:
+            return jsonify({
+                'token': token_info.token,
+                'error_code': token_info.error_code,
+                'error_message': 'Token generated successfully'
+            }), 200
+        else:
+            return jsonify({
+                'error_code': token_info.error_code,
+                'error_message': token_info.error_message
+            }), 400
+
+    except Exception as e:
+        return jsonify({
+            'error_code': 500,
+            'error_message': str(e)
+        }), 500
 
 
 
