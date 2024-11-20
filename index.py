@@ -618,6 +618,50 @@ def handle_accept_ride(data):
 
     print(f"Driver {driver_email} and User {user_email} automatically joined ride {ride_id}")
 
+@socketio.on("signal")
+def handle_signal(data):
+    try:
+        print(f"Sent a signal: {data}")
+        description = data.get("description")
+        candidate = data.get("candidate")
+        recipient_email = data.get("email")  # Email of the person to signal
+
+        if not recipient_email:
+            emit("error", {"message": "Recipient email is required"}, to=request.sid)
+            return
+
+        if recipient_email not in connected_users:
+            emit("error", {"message": f"Recipient {recipient_email} not connected"}, to=request.sid)
+            return
+
+        # Get recipient's SID
+        recipient_sid = next(iter(connected_users.get(recipient_email)))
+        payload = {}
+
+        if description:
+            payload["description"] = description
+        if candidate:
+            payload["candidate"] = candidate
+
+        # Emit signal data to the recipient
+        emit("signal", payload, to=recipient_sid)
+
+        # Emit acknowledgment back to the sender
+        emit("signal_ack", {"status": "sent"}, to=request.sid)
+
+    except KeyError as e:
+        # Handle unexpected missing data keys
+        error_message = f"Missing key in signal data: {e}"
+        emit("error", {"message": error_message}, to=request.sid)
+        print(f"KeyError: {error_message}")
+
+    except Exception as e:
+        # Catch all other exceptions
+        error_message = f"An unexpected error occurred: {str(e)}"
+        emit("error", {"message": error_message}, to=request.sid)
+        print(f"Exception: {error_message}")
+
+
 @app.route("/start_ride", methods=["POST"])
 def start_ride():
     try:
@@ -774,6 +818,7 @@ def arrivedCustomerLocation(data):
 def handle_initiate_call(data):
     try:
         # Extract required data
+        print("GOT HERE")
         calling = data.get('calling')
         caller = data.get("caller")
         callId = data.get("callId")
