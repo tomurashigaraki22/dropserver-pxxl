@@ -630,10 +630,6 @@ def handle_signal(data):
             emit("error", {"message": "Recipient email is required"}, to=request.sid)
             return
 
-        if recipient_email not in connected_users:
-            print(f"Connected users: {connected_users}")
-            emit("error", {"message": f"Recipient {recipient_email} not connected"}, to=request.sid)
-            return
 
         # Get recipient's SID
         recipient_sid = next(iter(connected_users.get(recipient_email)))
