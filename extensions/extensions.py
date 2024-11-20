@@ -25,11 +25,12 @@ app.config["MAIL_DEFAULT_SENDER"] = os.getenv("MAIL_DEFAULT_SENDER")  # Default 
 
 # Initialize SocketIO with Eventlet
 Payload.max_decode_packets = 500
-socketio = SocketIO(app, max_http_buffer_size=10**7, async_mode='eventlet')  # Use Eventlet as async mode
 db = SQLAlchemy(app)
 mysql = MySQL(app)
 mail = Mail(app)
 CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
+
+socketio = SocketIO(app, max_http_buffer_size=10**7, async_mode='eventlet', cors_allowed_origins="*")
 
 def get_db_connection():
     connection = pymysql.connect(
