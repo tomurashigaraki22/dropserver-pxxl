@@ -51,7 +51,7 @@ REQUEST_LIMIT_TIME_WINDOW = 60  # 1 minute
 REQUEST_LIMIT_COUNT = 3  # Max 3 requests per window
 
 @app.route("/status", methods=["GET", "POST"])
-def getStatus():
+def getTheStatus():
     # Print the method used (GET or POST)
     print("Request Method:", request.method)
     
@@ -68,7 +68,7 @@ def getStatus():
     return "Webhook received", 200
 
 @app.route("/inbound", methods=["GET", "POST"])
-def inbound():
+def inboundWebhook():
     # Print the method used (GET or POST)
     print("Request Method:", request.method)
     
