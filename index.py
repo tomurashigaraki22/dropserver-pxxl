@@ -50,6 +50,40 @@ OTP_EXPIRY_SECONDS = 300  # 5 minutes
 REQUEST_LIMIT_TIME_WINDOW = 60  # 1 minute
 REQUEST_LIMIT_COUNT = 3  # Max 3 requests per window
 
+@app.route("/status", methods=["GET", "POST"])
+def getStatus():
+    # Print the method used (GET or POST)
+    print("Request Method:", request.method)
+    
+    # Print the headers
+    print("Headers:", request.headers)
+    
+    # Print the data sent in the request body
+    if request.method == "POST":
+        print("Request Body:", request.get_json() or request.form or request.data)
+    
+    # Print query parameters (for GET or POST)
+    print("Query Parameters:", request.args)
+    
+    return "Webhook received", 200
+
+@app.route("/inbound", methods=["GET", "POST"])
+def inbound():
+    # Print the method used (GET or POST)
+    print("Request Method:", request.method)
+    
+    # Print the headers
+    print("Headers:", request.headers)
+    
+    # Print the data sent in the request body
+    if request.method == "POST":
+        print("Request Body:", request.get_json() or request.form or request.data)
+    
+    # Print query parameters (for GET or POST)
+    print("Query Parameters:", request.args)
+    
+    return "Inbound data received", 200
+
 @app.route("/show-otp", methods=["GET"])
 def showOTPS():
     return jsonify({"message": "Success", "otps": otp_storage})
