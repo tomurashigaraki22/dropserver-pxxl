@@ -226,7 +226,7 @@ def alterTable():
         cur = conn.cursor()
 
         cur.execute("""
-            DELETE FROM verificationdetails
+            DELETE FROM userauth
         """)
         # Execute the ALTER TABLE queries to add new column
 

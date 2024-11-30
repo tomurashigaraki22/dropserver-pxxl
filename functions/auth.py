@@ -278,10 +278,12 @@ def userSignup():
 
         # Hash the password for security
         hashed_password = generate_password_hash(password)
+        print(f"This is your email: {email}")
 
         # Check if the user already exists
-        cur.execute("SELECT * FROM userauth WHERE email = %s", (email,))
+        cur.execute("SELECT * FROM userauth WHERE email = %s", (email.strip(),))
         existing_user = cur.fetchone()
+        print(f"Ex: {existing_user}")
 
         if existing_user:
             return jsonify({'message': "User with this email already exists", 'status': 409})
