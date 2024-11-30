@@ -7,6 +7,7 @@ from flask_mail import Mail, Message
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_mysqldb import MySQL
+from vonage import Vonage, Auth, HttpClientOptions
 from engineio.payload import Payload
 
 load_dotenv()
@@ -31,6 +32,8 @@ mail = Mail(app)
 CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
 
 socketio = SocketIO(app, max_http_buffer_size=10**7, async_mode='eventlet', cors_allowed_origins="*")
+auth = Auth(api_key="087173e5", api_secret="I3bLsoCnrlJALfcK")
+client = Vonage(auth=auth)
 
 def get_db_connection():
     connection = pymysql.connect(

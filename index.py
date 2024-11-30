@@ -12,6 +12,30 @@ from functions import token04
 from functions.generate_ids import generate_transaction_and_reference_ids
 import requests
 from twilio.rest import Client
+import random
+from extensions.extensions import client
+from vonage import Auth, Vonage
+from vonage_messages.models import Sms
+
+# Initialize Vonage client
+# Application ID is already defined
+APPLICATION_ID = "540be838-484b-43ea-b8c8-549b0c5b5136"
+
+# Read the private key from the file
+with open("private.key", "r") as key_file:
+    PRIVATE_KEY = key_file.read().strip()
+
+
+
+client_vonage = Vonage(
+    Auth(
+        application_id=f"{APPLICATION_ID}",
+        private_key=f"{PRIVATE_KEY}"
+    )
+)  # Pass the `auth` instance directly to `Vonage`
+
+VONAGE_BRAND_NAME = "Twinkkles Drop"
+import time
 
 ###testing purposes###
 
@@ -19,48 +43,97 @@ account_sid = 'AC1fddc1606c1c2348da6b5f053105ed74'  # Replace with your Account 
 auth_token = '184afd262a3f28fb7d19940a65b89173'  # Replace with your Auth Token
 verify_service_sid = 'VAeb468b05e465cc3f8ff7d22af6a06753'  # Replace with your Service SID
 client = Client(account_sid, auth_token)
+VONAGE_BRAND_NAME = "Twinkkles Drop"
+
+otp_storage = {}
+OTP_EXPIRY_SECONDS = 300  # 5 minutes
+REQUEST_LIMIT_TIME_WINDOW = 60  # 1 minute
+REQUEST_LIMIT_COUNT = 3  # Max 3 requests per window
+
+@app.route("/show-otp", methods=["GET"])
+def showOTPS():
+    return jsonify({"message": "Success", "otps": otp_storage})
 
 @app.route('/send-otp', methods=['POST'])
 def send_otp():
     data = request.get_json()
-    print(f"Data: {data}")
     phone_number = data.get('phone_number')
-    
+
     if not phone_number:
         return jsonify({"error": "Phone number is required"}), 400
 
+    current_time = time.time()
+
+    # Check request limits
+    if phone_number in otp_storage:
+        last_request_time = otp_storage[phone_number].get("last_request_time", 0)
+        request_count = otp_storage[phone_number].get("request_count", 0)
+
+        if current_time - last_request_time < REQUEST_LIMIT_TIME_WINDOW:
+            if request_count >= REQUEST_LIMIT_COUNT:
+                return jsonify({"error": "Too many requests. Please try again later."}), 429
+            else:
+                otp_storage[phone_number]["request_count"] += 1
+        else:
+            # Reset request count if outside time window
+            otp_storage[phone_number]["request_count"] = 1
+    else:
+        # Initialize request tracking
+        otp_storage[phone_number] = {"request_count": 1}
+
+    # Generate a new OTP and update storage
+    otp = random.randint(100000, 999999)
+    otp_storage[phone_number].update({
+        "otp": otp,
+        "timestamp": current_time,
+        "last_request_time": current_time,
+    })
+
     try:
-        # Send OTP via SMS
-        verification = client.verify.v2.services(verify_service_sid) \
-            .verifications \
-            .create(to=phone_number, channel='sms')
-        
-        return jsonify({"message": "OTP sent", "sid": verification.sid}), 200
+        response = client_vonage.messages.send(
+            Sms(
+                to=phone_number,
+                from_=VONAGE_BRAND_NAME,
+                text=f"Hello type this {otp}",
+            )
+        )
+        print("Response:", response)
+
+        # Access attributes of the response object correctly
+        if hasattr(response, "message_uuid") and response.message_uuid:
+            return jsonify({"message": "SMS sent successfully", "uuid": response.message_uuid})
+        else:
+            return jsonify({"error": "Failed to send SMS"}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Endpoint to verify OTP
+
 @app.route('/verify-otp', methods=['POST'])
 def verify_otp():
     data = request.get_json()
     phone_number = data.get('phone_number')
     code = data.get('code')
-    
+
     if not phone_number or not code:
         return jsonify({"error": "Phone number and OTP code are required"}), 400
 
-    try:
-        # Check if OTP is valid
-        verification_check = client.verify.v2.services(verify_service_sid) \
-            .verification_checks \
-            .create(to=phone_number, code=code)
+    # Retrieve the OTP metadata
+    otp_data = otp_storage.get(phone_number)
 
-        if verification_check.status == "approved":
-            return jsonify({"message": "OTP verified successfully"}), 200
-        else:
-            return jsonify({"error": "Invalid OTP"}), 400
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    if not otp_data:
+        return jsonify({"error": "No OTP found for this phone number"}), 400
+
+    # Check OTP expiration
+    if time.time() - otp_data["timestamp"] > OTP_EXPIRY_SECONDS:
+        del otp_storage[phone_number]  # Clean up expired OTP
+        return jsonify({"error": "OTP has expired"}), 400
+
+    # Verify the OTP
+    if str(otp_data["otp"]) == str(code):
+        del otp_storage[phone_number]  # Clean up after successful verification
+        return jsonify({"message": "OTP verified successfully"}), 200
+    else:
+        return jsonify({"error": "Invalid OTP"}), 400
 
 @app.route('/tables', methods=['GET'])
 def get_tables():
@@ -87,7 +160,7 @@ def alterTable():
         cur = conn.cursor()
 
         cur.execute("""
-            DELETE FROM location
+            DELETE FROM verificationdetails
         """)
         # Execute the ALTER TABLE queries to add new column
 
@@ -364,6 +437,7 @@ def handle_connect():
 def handle_register_user(data):
     email = data['email']
     if email:
+        print("Email gotten")
         if email not in connected_users:
             connected_users[email] = set()  # Initialize a set for multiple connections
         connected_users[email].add(request.sid)  # Add current socket ID to user's set
