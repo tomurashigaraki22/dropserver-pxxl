@@ -145,7 +145,7 @@ def send_otp():
             Sms(
                 to=phone_number,
                 from_=VONAGE_BRAND_NAME,
-                text=f"Hello type this {otp}",
+                text=f"Your otp verification code is {otp}",
             )
         )
         print("Response:", response)
