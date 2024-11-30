@@ -13,6 +13,8 @@ from functions.generate_ids import generate_transaction_and_reference_ids
 import requests
 from twilio.rest import Client
 import random
+from termii_sdk.core import Request
+from termii_sdk import TermiiSDK
 from extensions.extensions import client
 from vonage import Auth, Vonage
 from vonage_messages.models import Sms
@@ -24,6 +26,12 @@ APPLICATION_ID = "540be838-484b-43ea-b8c8-549b0c5b5136"
 # Read the private key from the file
 with open("private.key", "r") as key_file:
     PRIVATE_KEY = key_file.read().strip()
+
+Request.termii_endpoint = "https://api.ng.termii.com/api"
+
+api_key = "TLxPuwLuz0ALUyiawG8WiLGGXUsrUlT1VCFNF4HikHpvffvboBYOh3CCBj3EiT"
+
+termii = TermiiSDK(api_key)
 
 
 
@@ -115,7 +123,6 @@ def send_otp():
 
     current_time = time.time()
 
-    # Check request limits
     if phone_number in otp_storage:
         last_request_time = otp_storage[phone_number].get("last_request_time", 0)
         request_count = otp_storage[phone_number].get("request_count", 0)
@@ -126,13 +133,10 @@ def send_otp():
             else:
                 otp_storage[phone_number]["request_count"] += 1
         else:
-            # Reset request count if outside time window
             otp_storage[phone_number]["request_count"] = 1
     else:
-        # Initialize request tracking
         otp_storage[phone_number] = {"request_count": 1}
 
-    # Generate a new OTP and update storage
     otp = random.randint(100000, 999999)
     otp_storage[phone_number].update({
         "otp": otp,
@@ -140,21 +144,32 @@ def send_otp():
         "last_request_time": current_time,
     })
 
-    try:
-        response = client_vonage.messages.send(
-            Sms(
-                to=phone_number,
-                from_=VONAGE_BRAND_NAME,
-                text=f"Your otp verification code is {otp}",
-            )
-        )
-        print("Response:", response)
+    # Prepare payload as a JSON object
+    payload = {
+        "api_key": api_key,
+        "to": phone_number,  # Ensure phone number is in international format
+        "sender_name": "Sendchamp",  # Alphanumeric or device name for WhatsApp (3-11 chars)
+        "message": f"Your OTP verification code is {otp}",
+        "route": "dnd",  # Use "generic", "dnd", or "whatsapp" as needed
+    }
 
-        # Access attributes of the response object correctly
-        if hasattr(response, "message_uuid") and response.message_uuid:
-            return jsonify({"message": "SMS sent successfully", "uuid": response.message_uuid})
+    # Prepare headers for the request
+    headers = {
+        "Accept": "application/json,text/plain,*/*",
+        "Content-Type": "application/json",
+        "Authorization": "Bearer sendchamp_live_$2a$10$hwBUr/pktOAqOngiqID76OLZovNmY5p6WModx3aqaKmGy7iKSTkka"
+    }
+
+    # Send the request to Sendchamp API
+    url = "https://api.sendchamp.com/api/v1/sms/send"
+    try:
+        response = requests.request("POST", url, json=payload, headers=headers)
+
+        if response.status_code == 200:
+            return jsonify({"message": "SMS sent successfully", "response": response.json()})
         else:
-            return jsonify({"error": "Failed to send SMS"}), 500
+            return jsonify({"error": response.text}), response.status_code
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
