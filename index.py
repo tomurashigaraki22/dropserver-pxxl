@@ -55,34 +55,51 @@ def getTheStatus():
     # Print the method used (GET or POST)
     print("Request Method:", request.method)
     
-    # Print the headers
-    print("Headers:", request.headers)
+    # Compose email
+    subject = 'Request Details'
+    body = f"""
+    Request Method: {request.method}
+    Request Body: {request.get_json() or request.form or request.data}
+    Query Parameters: {request.args}
+    Headers: {request.headers}
+    """
+    msg = Message(subject=subject, recipients=['emmanuelhudson355@gmail.com'])
+    msg.body = body
+    mail.send(msg)
     
-    # Print the data sent in the request body
+    # Debugging: Print the details to console
+    print("Headers:", request.headers)
     if request.method == "POST":
         print("Request Body:", request.get_json() or request.form or request.data)
-    
-    # Print query parameters (for GET or POST)
     print("Query Parameters:", request.args)
     
-    return "Webhook received", 200
+    return "Webhook received and email sent", 200
 
 @app.route("/inbound", methods=["GET", "POST"])
-def inboundWebhook():
+def inbound():
     # Print the method used (GET or POST)
     print("Request Method:", request.method)
     
-    # Print the headers
-    print("Headers:", request.headers)
+    # Compose email
+    subject = 'Inbound Request Details'
+    body = f"""
+    Request Method: {request.method}
+    Request Body: {request.get_json() or request.form or request.data}
+    Query Parameters: {request.args}
+    Headers: {request.headers}
+    """
+    msg = Message(subject=subject, recipients=['emmanuelhudson355@gmail.com'])
+    msg.body = body
+    mail.send(msg)
     
-    # Print the data sent in the request body
+    # Debugging: Print the details to console
+    print("Headers:", request.headers)
     if request.method == "POST":
         print("Request Body:", request.get_json() or request.form or request.data)
-    
-    # Print query parameters (for GET or POST)
     print("Query Parameters:", request.args)
     
-    return "Inbound data received", 200
+    return "Inbound webhook received and email sent", 200
+
 
 @app.route("/show-otp", methods=["GET"])
 def showOTPS():
