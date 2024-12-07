@@ -1360,20 +1360,25 @@ def endedTheRide(data):
     try:
         driver_email = data.get('driver_email')
         user_email = data.get('user_email')
+        print(f"Data from ended ride: {driver_email} {user_email}")
 
         if not driver_email or not user_email:
             return {"error": "Missing driver_email or user_email"}, 400
 
         # Assuming connected_users is a dictionary with driver_email as key and a list of SIDs as value
-        driver_sids = next(iter(connected_users.get(driver_email, [])), None)
-        user_sids = next(iter(connected_users.get(user_email, [])), None)
+        driver_sids = next(iter(connected_users.get(driver_email, [])))
+        user_sids = next(iter(connected_users.get(user_email, [])))
+
+        print(f"Driver SIDs: {driver_sids}")
+        print(f"User_sids : {user_sids}")
 
         if driver_sids:
             # Emit the 'endedRide' event to all SIDs linked to the driver_email
+            print(f"UMMM")
             socketio.emit('endedRide', {'user_email': user_email, "driver_email": driver_email}, to=driver_sids)
-            return {"status": "success", "message": "Ride ended for driver"}
         
         if user_sids:
+            print(f"Good")
             socketio.emit("endedRide", {
                 'user_email': user_email,
                 'driver_email': driver_email,
@@ -1430,8 +1435,11 @@ def userReached(data):
 @socketio.on("arrived_customer_location")
 def arrivedCustomerLocation(data):
     try:
-        driver_email = data.get('driverEmail')
+        driver_email = data.get('driver_email')
+        print(f"Driveremail: ", driver_email)
         user_email =  data.get('email')
+        receiver_sid = next(iter(connected_users.get(user_email)))
+
 
         if not user_email:
             socketio.emit("error", {
@@ -1440,7 +1448,8 @@ def arrivedCustomerLocation(data):
             }, to=receiver_sid)
             return
         
-        receiver_sid = next(iter(connected_users.get(user_email)))
+
+        
 
         if not receiver_sid:
             socketio.emit("error", {
