@@ -1357,27 +1357,36 @@ def join_the_room(data):
 
 @socketio.on('endedRide')
 def endedTheRide(data):
-    driver_email = data.get('driver_email')
-    user_email = data.get('user_email')
+    try:
+        driver_email = data.get('driver_email')
+        user_email = data.get('user_email')
 
-    if not driver_email or not user_email:
-        return
+        if not driver_email or not user_email:
+            return {"error": "Missing driver_email or user_email"}, 400
 
-    # Assuming connected_users is a dictionary with driver_email as key and a list of SIDs as value
-    driver_sids = next(iter(connected_users.get(driver_email)))
-    user_sids = next(iter(connected_users.get(user_email)))
+        # Assuming connected_users is a dictionary with driver_email as key and a list of SIDs as value
+        driver_sids = next(iter(connected_users.get(driver_email, [])), None)
+        user_sids = next(iter(connected_users.get(user_email, [])), None)
 
-    if driver_sids:
-        # Emit the 'endedRide' event to all SIDs linked to the driver_email
-        socketio.emit('endedRide', {'user_email': user_email}, to=driver_sids)
-        return
-    if user_sids:
-        socketio.emit("endedRide", {
-            'user_email': user_email,
-            'driver_email': driver_email,
-            'message': "Ride ended"
-        }, to=user_sids)
-        return
+        if driver_sids:
+            # Emit the 'endedRide' event to all SIDs linked to the driver_email
+            socketio.emit('endedRide', {'user_email': user_email, "driver_email": driver_email}, to=driver_sids)
+            return {"status": "success", "message": "Ride ended for driver"}
+        
+        if user_sids:
+            socketio.emit("endedRide", {
+                'user_email': user_email,
+                'driver_email': driver_email,
+                'message': "Ride ended"
+            }, to=user_sids)
+            return {"status": "success", "message": "Ride ended for user"}
+
+        return {"error": "No connected sessions found for driver or user"}, 404
+
+    except Exception as e:
+        # Log the exception (if you have a logging system, replace print with logger)
+        print(f"Error in endedTheRide: {e}")
+        return {"error": "An unexpected error occurred", "details": str(e)}, 500
 
     
 
