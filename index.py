@@ -1390,20 +1390,20 @@ def userReached(data):
             socketio.emit("error", {
                 'message': f"User reached receiver sid not found: {receiver_sid}",
                 'status': 404
-            })
+            }, to=receiver_sid)
             return
         
         socketio.emit("user_entered", {
             'message': f"User {email} has reached car successfully",
             'email': email,
             'driver': receiver
-        })
+        }, to=receiver_sid)
         return jsonify({'message': f"User {email} has reached car successfully", 'email': email, 'driver': receiver})
     except Exception as e:
         socketio.emit("error", {
             'message': f"Exception occurred: {str(e)}",
             'exception': str(e)
-        })
+        }, to=receiver_sid)
         return jsonify({'message': f"Exception occurred: {str(e)}", "exception": str(e)})
     
 
