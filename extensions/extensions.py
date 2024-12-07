@@ -6,7 +6,6 @@ from flask_socketio import SocketIO, emit
 from flask_mail import Mail, Message
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
-from flask_mysqldb import MySQL
 from vonage import Vonage, Auth, HttpClientOptions
 from engineio.payload import Payload
 
@@ -27,7 +26,6 @@ app.config["MAIL_DEFAULT_SENDER"] = os.getenv("MAIL_DEFAULT_SENDER")  # Default 
 # Initialize SocketIO with Eventlet
 Payload.max_decode_packets = 500
 db = SQLAlchemy(app)
-mysql = MySQL(app)
 mail = Mail(app)
 CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
 

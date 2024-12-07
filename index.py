@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_socketio import emit, join_room, leave_room, SocketIO
-from extensions.extensions import get_db_connection, socketio, app, mysql, mail
+from extensions.extensions import get_db_connection, socketio, app, mail
 from flask_mail import Message
 from extensions.db_schemas import database_schemas
 from functions.auth import userSignup, login, verifyEmail, changePassword, get_balance, add_to_balance, driverLogin, driverSignup, checkVerificationStatus, uploadVerificationImages, saveLinksToDB
@@ -57,6 +57,45 @@ otp_storage = {}
 OTP_EXPIRY_SECONDS = 300  # 5 minutes
 REQUEST_LIMIT_TIME_WINDOW = 60  # 1 minute
 REQUEST_LIMIT_COUNT = 3  # Max 3 requests per window
+
+
+socketio.on("arrived_customer_location")
+def arrivedATCustomerLocation(data):
+    try:
+        driver = data['driver_email']
+        user = data['email']
+
+        print(f"Data: {data}")
+
+        if not driver or not user:
+            print(f"An error occurred, no email or driver found")
+            socketio.emit("error", {
+                "message": "Driver email or user email not found",
+                "status": 404
+            })
+            return jsonify({'message': "Driver email and user email not found", 'status': 404}), 404
+        
+        receiver_email = next(iter(connected_users.get(user)))
+
+        if not receiver_email:
+            socketio.emit("error", {
+                "message": "User not found in connected users dict",
+                "status": 409
+            })
+
+        socketio.emit("driver_reached", {
+            "message": "Driver has reached customer location",
+            "status": 200,
+            "driver_email": driver
+        })
+
+    except Exception as e:
+        socketio.emit("error", {
+            "message": f"Exception occurred: {str(e)}",
+            "status": 500,
+            "exception": str(e)
+        })
+        return jsonify({'message': "Exception occurred", "exception": str(e)}), 500
 
 @app.route("/status", methods=["GET", "POST"])
 def getTheStatus():
@@ -148,7 +187,7 @@ def send_otp():
     payload = {
         "api_key": api_key,
         "to": phone_number,  # Ensure phone number is in international format
-        "sender_name": "Sendchamp",  # Alphanumeric or device name for WhatsApp (3-11 chars)
+        "sender_name": "SAlert",  # Alphanumeric or device name for WhatsApp (3-11 chars)
         "message": f"Your OTP verification code is {otp}",
         "route": "dnd",  # Use "generic", "dnd", or "whatsapp" as needed
     }
@@ -1330,6 +1369,84 @@ def endedTheRide(data):
     if driver_sids:
         # Emit the 'endedRide' event to all SIDs linked to the driver_email
         socketio.emit('endedRide', {'user_email': user_email}, to=driver_sids)
+
+
+@socketio.on("user_reached")
+def userReached(data):
+    try:
+        receiver = data.get("receiver")
+        email = data.get("email")
+
+        if not receiver:
+            socketio.emit("error", {
+                'message': f"User reached receiver not found: {receiver}",
+                'status': 404
+            })
+            return
+        
+        receiver_sid = next(iter(connected_users.get(receiver)))
+
+        if not receiver_sid:
+            socketio.emit("error", {
+                'message': f"User reached receiver sid not found: {receiver_sid}",
+                'status': 404
+            })
+            return
+        
+        socketio.emit("user_entered", {
+            'message': f"User {email} has reached car successfully",
+            'email': email,
+            'driver': receiver
+        })
+        return jsonify({'message': f"User {email} has reached car successfully", 'email': email, 'driver': receiver})
+    except Exception as e:
+        socketio.emit("error", {
+            'message': f"Exception occurred: {str(e)}",
+            'exception': str(e)
+        })
+        return jsonify({'message': f"Exception occurred: {str(e)}", "exception": str(e)})
+    
+
+@socketio.on("arrived_customer_location")
+def arrivedCustomerLocation(data):
+    try:
+        driver_email = data.get('driverEmail')
+        user_email =  data.get('email')
+
+        if not user_email:
+            socketio.emit("error", {
+                'message': f"Driver reached receiver not found: {user_email}",
+                'status': 404
+            }, to=receiver_sid)
+            return
+        
+        receiver_sid = next(iter(connected_users.get(user_email)))
+
+        if not receiver_sid:
+            socketio.emit("error", {
+                'message': f"Driver reached receiver sid not found: {receiver_sid}",
+                'status': 404
+            }, to=receiver_sid)
+            return
+        
+        socketio.emit("driver_reached", {
+            'message': f"Driver {driver_email} has reached car successfully",
+            'email': user_email,
+            'driver': driver_email
+        }, to=receiver_sid)
+        return jsonify({'message': f"Driver {driver_email} has reached car successfully", 'email': user_email, 'driver': driver_email})
+    except Exception as e:
+        socketio.emit("error", {
+            'message': f"Exception occurred: {str(e)}",
+            'exception': str(e)
+        }, to=receiver_sid)
+        return jsonify({'message': f"Exception occurred: {str(e)}", "exception": str(e)})
+        
+
+
+
+
+            
 
 
 @socketio.on('joinRoom')
