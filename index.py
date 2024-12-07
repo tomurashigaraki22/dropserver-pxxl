@@ -1365,10 +1365,21 @@ def endedTheRide(data):
 
     # Assuming connected_users is a dictionary with driver_email as key and a list of SIDs as value
     driver_sids = next(iter(connected_users.get(driver_email)))
+    user_sids = next(iter(connected_users.get(user_email)))
 
     if driver_sids:
         # Emit the 'endedRide' event to all SIDs linked to the driver_email
         socketio.emit('endedRide', {'user_email': user_email}, to=driver_sids)
+        return
+    if user_sids:
+        socketio.emit("endedRide", {
+            'user_email': user_email,
+            'driver_email': driver_email,
+            'message': "Ride ended"
+        }, to=user_sids)
+        return
+
+    
 
 
 @socketio.on("user_reached")
