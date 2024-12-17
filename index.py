@@ -1038,18 +1038,58 @@ def handle_answer_call(data):
         socketio.emit('callAnswer', {'answer': data['answer']}, to=sid)  # Notify caller
         print(f'Call answered by {data["to"]}')
 
-@socketio.on('iceCandidate')
-def handle_ice_candidate(data):
-    print(f"Data: {data}")
-    receiver_socket_id = connected_users.get(data['to'])  # Get receiver from data
+        
+@socketio.on("offer")
+def handle_offer(data):
+    """Send offer to the recipient."""
+    try:
+        recipient_email = data["to"]  # Email of the recipient
+        if recipient_email in connected_users:
+            sid = next(iter(connected_users.get(recipient_email, [])), None)
+            if sid:
+                socketio.emit("offer", data, to=sid)
+            else:
+                raise ValueError("No valid connection found for the recipient.")
+        else:
+            raise KeyError(f"Recipient with email {recipient_email} not found.")
+    except Exception as e:
+        print(f"Error in handle_offer: {e}")
+        socketio.emit("error", {"message": str(e)}, to=request.sid)
 
-    if receiver_socket_id:
-        for sid in receiver_socket_id:
-            print(f"ice candidate: {receiver_socket_id}")
-            socketio.emit('iceCandidates', {'candidate': data['candidate']}, to=sid)  # Send ICE candidate
-        print(f'ICE candidate sent to {data["to"]}')
-    else:
-        print(f"No active connection found for {data['to']}. ICE candidate not sent.")
+@socketio.on("answer")
+def handle_answer(data):
+    """Send answer to the recipient."""
+    try:
+        recipient_email = data["to"]  # Email of the recipient
+        if recipient_email in connected_users:
+            sid = next(iter(connected_users.get(recipient_email, [])), None)
+            if sid:
+                socketio.emit("answer", data, to=sid)
+            else:
+                raise ValueError("No valid connection found for the recipient.")
+        else:
+            raise KeyError(f"Recipient with email {recipient_email} not found.")
+    except Exception as e:
+        print(f"Error in handle_answer: {e}")
+        socketio.emit("error", {"message": str(e)}, to=request.sid)
+
+@socketio.on("ice-candidate")
+def handle_ice_candidate(data):
+    """Send ICE candidate to the recipient."""
+    try:
+        recipient_email = data["to"]  # Email of the recipient
+        if recipient_email in connected_users:
+            sid = next(iter(connected_users.get(recipient_email, [])), None)
+            if sid:
+                socketio.emit("ice-candidate", data, to=sid)
+            else:
+                raise ValueError("No valid connection found for the recipient.")
+        else:
+            raise KeyError(f"Recipient with email {recipient_email} not found.")
+    except Exception as e:
+        print(f"Error in handle_ice_candidate: {e}")
+        socketio.emit("error", {"message": str(e)}, to=request.sid)
+
 
 
 @socketio.on('callResponse')
