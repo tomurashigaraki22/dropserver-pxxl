@@ -998,6 +998,7 @@ def handle_initiate_call(data):
         calling = data.get('calling')
         caller = data.get("caller")
         callId = data.get("callId")
+        whoCalled = data.get("whoCalled")
 
 
         # Check if necessary data is provided
@@ -1014,10 +1015,20 @@ def handle_initiate_call(data):
 
         # Emit the incoming call event to each session ID of the receiver
         sid = next(iter(receiver_sids))
-        socketio.emit("incomingCall", {
-            "callId": callId,
-            "caller": caller
-        }, to=sid)
+        if whoCalled == "user":
+            call_url = f"https://call-rn.vercel.app/?userId={caller}&driverId={calling}&initiator=true"
+        else:
+            call_url = f"https://call-client-eta.vercel.app/?userId={caller}&driverId={calling}&initiator=true"
+
+        socketio.emit(
+            "incomingCall",
+            {
+                "callId": callId,
+                "caller": caller,
+                "callUrl": call_url
+            },
+            to=sid  # Specify the target client
+        )
         print(f"Incoming call sent to {calling} (session ID: {sid})")
 
         # Success response after all emits are sent
