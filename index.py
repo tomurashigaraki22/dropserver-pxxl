@@ -1015,10 +1015,10 @@ def handle_initiate_call(data):
 
         # Emit the incoming call event to each session ID of the receiver
         sid = next(iter(receiver_sids))
-        if whoCalled == "user":
-            call_url = f"https://call-rn.vercel.app/?userId={caller}&driverId={calling}&initiator=true"
+        if whoCalled == "driver":
+            call_url = f"https://call-rn.vercel.app/?userId={caller}&driverId={calling}&initiator=false"
         else:
-            call_url = f"https://call-client-eta.vercel.app/?userId={caller}&driverId={calling}&initiator=true"
+            call_url = f"https://call-client-eta.vercel.app/?userId={caller}&driverId={calling}&initiator=false"
 
         socketio.emit(
             "incomingCall",
