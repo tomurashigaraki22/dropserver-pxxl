@@ -15,6 +15,15 @@ def database_schemas():
                 user_type VARCHAR(80) NOT NULL
             )
         """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS pushtoken (
+                id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                email VARCHAR(255) NOT NULL,
+                token VARCHAR(255) DEFAULT NULL
+            );
+        """)
+
         
         cur.execute(""" 
             CREATE TABLE IF NOT EXISTS driver_location (

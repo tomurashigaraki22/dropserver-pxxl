@@ -1,10 +1,12 @@
 from extensions.extensions import app, get_db_connection, mail
 from flask import Flask, request, jsonify
 from werkzeug.security import check_password_hash, generate_password_hash
+from functions.generate_ids import generate_transaction_and_reference_ids
 import datetime
 from datetime import datetime, timedelta
 import os
 import jwt
+from functions.subscriptions import calculate_expiration_date
 from flask_mail import Message
 import random
 import cloudinary
@@ -77,6 +79,9 @@ def verifyEmail():
 
     except Exception as e:
         return jsonify({"message": str(e), "status": 500})
+    
+
+
     
 
 def add_to_balance():
@@ -382,6 +387,43 @@ def driverLogin():
         return jsonify({'message': f"An error occurred: {str(e)}", 'status': 500})
     
 
+def subscribe_user2(email, months_paid):
+    # Extract data from the request form
+    transaction_id, reference_id = generate_transaction_and_reference_ids()  # Assuming you have this function
+
+    # Validate inputs
+    if not email or not transaction_id or not reference_id or months_paid <= 0:
+        return jsonify({"message": "Invalid input parameters.", "status": 400})
+
+    try:
+        # Connect to the database
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Calculate the expiration date
+        expiration_date = calculate_expiration_date(months_paid)
+
+        # Debugging output
+        print("Email:", email)
+        print("Transaction ID:", transaction_id)
+        print("Reference ID:", reference_id)
+        print("Months Paid:", months_paid)
+        print("Expiration Date:", expiration_date)
+
+        # Insert the subscription into the database
+        cur.execute("""
+            INSERT INTO subscriptions (email, transaction_id, reference_id, months_paid, expires_at) 
+            VALUES (%s, %s, %s, %s, %s)
+        """, (email, transaction_id, reference_id, months_paid, expiration_date))
+
+        conn.commit()
+
+    except Exception as e:
+        return jsonify({"message": f"An error occurred: {str(e)}", "status": 500})
+
+    return jsonify({"message": "Subscription created successfully.", "expires_at": expiration_date, "status": 201})
+    
+
 def driverSignup():
     try:
         email = request.form.get("email")
@@ -434,6 +476,14 @@ def driverSignup():
         # Close the database connection
         cur.close()
         conn.close()
+
+        try:
+            result = subscribe_user2(email=email, months_paid=1)
+            if result.get_json().get("status") != 201:
+                print("Subscription creation failed:", result.get_json())
+        except Exception as e:
+            print(f"An error occurred while creating subscription: {str(e)}")
+
 
         # Send back the token in the response
         return jsonify({

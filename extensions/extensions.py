@@ -4,7 +4,6 @@ import pymysql
 from flask import Flask, jsonify, request
 from flask_socketio import SocketIO, emit
 from flask_mail import Mail, Message
-from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from vonage import Vonage, Auth, HttpClientOptions
 from engineio.payload import Payload
@@ -13,8 +12,6 @@ load_dotenv()
 app = Flask(__name__)
 
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DB_URL")
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAIL_SERVER"] = "smtp.gmail.com"
 app.config["MAIL_PORT"] = 465  # SMTP Port for SSL
 app.config["MAIL_USE_SSL"] = True  # Enable SSL
@@ -25,7 +22,6 @@ app.config["MAIL_DEFAULT_SENDER"] = os.getenv("MAIL_DEFAULT_SENDER")  # Default 
 
 # Initialize SocketIO with Eventlet
 Payload.max_decode_packets = 500
-db = SQLAlchemy(app)
 mail = Mail(app)
 CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
 

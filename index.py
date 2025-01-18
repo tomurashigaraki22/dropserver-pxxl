@@ -59,6 +59,127 @@ REQUEST_LIMIT_TIME_WINDOW = 60  # 1 minute
 REQUEST_LIMIT_COUNT = 3  # Max 3 requests per window
 
 
+@app.route("/get_push_token", methods=["POST"])
+def getPushTokenNow():
+    try:
+        data = request.get_json()
+        email = data.get("email")
+        token = data.get("push_token")
+
+        if not email or not token:
+            return jsonify({'message': 'Email or token missing', 'status': 400}), 400
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Check if email already exists in the database
+        cur.execute("SELECT * FROM pushtoken WHERE email = %s", (email,))
+        existing_record = cur.fetchone()
+
+        if existing_record:
+            # Update the existing token
+            cur.execute("UPDATE pushtoken SET token = %s WHERE email = %s", (token, email))
+            message = "Token updated successfully"
+        else:
+            # Insert new token
+            cur.execute("INSERT INTO pushtoken (email, token) VALUES (%s, %s)", (email, token))
+            message = "Token inserted into database successfully"
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({'message': message, 'token': token, 'status': 201}), 201
+
+    except Exception as e:
+        print(f"Exception occurred: {str(e)}")
+        return jsonify({'message': 'An error occurred', 'status': 500, 'exception': str(e)}), 500
+
+EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+    
+@app.route("/send_notification", methods=["POST"])
+def sendNotificationNow():
+    try:
+        # Get data from the request
+        data = request.get_json()
+        email = data.get("email")
+        title = data.get("title", "Notification Title")
+        body = data.get("body", "Notification Body")
+        sound = data.get("sound", "default")
+        priority = data.get("priority", "high")
+        channel_id = data.get("channel_id", "custom")
+
+        # Validate input
+        if not email:
+            return jsonify({
+                "message": "Email is required to fetch push token",
+                "status": 400
+            }), 400
+
+        # Connect to the database
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Query to get the push token
+        cur.execute("SELECT token FROM pushtoken WHERE email = %s", (email,))
+        result = cur.fetchone()
+
+        if not result or not result[0]:
+            cur.close()
+            conn.close()
+            return jsonify({
+                "message": f"No push token found for email {email}",
+                "status": 404
+            }), 404
+
+        expo_push_token = result[0]  # Extract token
+        cur.close()
+        conn.close()
+
+        # Notification payload
+        notification_payload = {
+            "to": expo_push_token,
+            "title": title,
+            "body": body,
+            "sound": sound,
+            "priority": priority,
+            "channelId": channel_id,
+        }
+
+        # Send the notification
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "accept-encoding": "gzip, deflate",
+            "host": "exp.host"
+        }
+        response = requests.post(EXPO_PUSH_URL, json=notification_payload, headers=headers)
+        response_data = response.json()
+
+        if response.status_code == 200:
+            print(f"TR: {response}")
+            return jsonify({
+                "message": "Notification sent successfully",
+                "response": response_data,
+                "status": 200
+            }), 200
+        else:
+            print(f"WD: {response}")
+            return jsonify({
+                "message": "Failed to send notification",
+                "response": response_data,
+                "status": response.status_code
+            }), response.status_code
+
+    except Exception as e:
+        return jsonify({
+            "message": "An error occurred",
+            "error": str(e),
+            "status": 500
+        }), 500
+
+
+
 socketio.on("arrived_customer_location")
 def arrivedATCustomerLocation(data):
     try:
@@ -1018,7 +1139,7 @@ def handle_initiate_call(data):
         if whoCalled == "driver":
             call_url = f"https://call-rn.vercel.app/?userId={caller}&driverId={calling}&initiator=false"
         else:
-            call_url = f"https://call-client-eta.vercel.app/?userId={caller}&driverId={calling}&initiator=false"
+            call_url = f"https://call-rn.vercel.app/?userId={calling}&driverId={caller}&initiator=false"
 
         socketio.emit(
             "incomingCall",
