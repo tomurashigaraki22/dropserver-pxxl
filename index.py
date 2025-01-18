@@ -1139,7 +1139,7 @@ def handle_initiate_call(data):
         if whoCalled == "driver":
             call_url = f"https://call-rn.vercel.app/?userId={caller}&driverId={calling}&initiator=false"
         else:
-            call_url = f"https://call-rn.vercel.app/?userId={calling}&driverId={caller}&initiator=false"
+            call_url = f"https://call-rn.vercel.app/?userId={caller}&driverId={calling}&initiator=false"
 
         socketio.emit(
             "incomingCall",
