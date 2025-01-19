@@ -1108,6 +1108,56 @@ def arrivedCustomerLocation(data):
         print(f"Error in arrivedCustomerLocation: {e}")
         return {"Message": "Internal server error"}, 500
 
+@socketio.on("read_message")
+def readMessageNow(data):
+    try:
+        print("Reading message")
+        message_array = data.get("messages")  # List of message IDs to mark as read
+        sender = data.get('sender')  # Sender's email
+        receiver = data.get('receiver')  # Receiver's email
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        if not message_array or not sender or not receiver:
+            return {"status": "error", "message": "Invalid data provided"}
+
+        # Update the messages in the database
+        query = """
+            UPDATE messages
+            SET isRead = TRUE
+            WHERE id IN (%s)
+            AND email = %s
+            AND receiver_email = %s
+        """ % (", ".join(["%s"] * len(message_array)))
+
+        cur.execute(query, message_array + [sender, receiver])
+        conn.commit()
+
+        # Get the receiver's socket ID
+        receiver_sids = connected_users.get(receiver)
+        if not receiver_sids:
+            print("Receiver is not connected")
+            return {"status": "error", "message": "Receiver is not connected"}
+
+        receiver_sid = next(iter(receiver_sids))  # Get the first active SID for the receiver
+
+        # Emit the message_read event to the specific receiver SID
+        print(f"Messages {message_array} marked as read")
+        socketio.emit(
+            "message_read",
+            {
+                "message_array": message_array,
+                "sender": sender,
+                "receiver": receiver
+            },
+            to=receiver_sid
+        )
+
+        return {"status": "success", "message": "Messages marked as read"}
+    except Exception as e:
+        print(f"Error marking messages as read: {e}")
+        return {"status": "error", "message": "An error occurred"}
+
 
 
 
