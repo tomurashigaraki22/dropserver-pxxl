@@ -1716,7 +1716,7 @@ def get_messages():
     try:
         cur = conn.cursor()  # Using cur instead of conn.cursor() context manager
         cur.execute("""
-            SELECT email, receiver_email, message, created_at 
+            SELECT id, email, receiver_email, message, created_at 
             FROM messages 
             WHERE unique_identifier = %s 
             ORDER BY created_at ASC
@@ -1726,10 +1726,11 @@ def get_messages():
         # Format messages into JSON
         formatted_messages = [
             {
-                "sender": message[0],  # email
-                "receiver": message[1],  # receiver_email
-                "message": message[2],  # message
-                "timestamp": message[3].strftime('%Y-%m-%d %H:%M:%S')  # created_at
+                "id": message[0],
+                "sender": message[1],  # email
+                "receiver": message[2],  # receiver_email
+                "message": message[3],  # message
+                "timestamp": message[4].strftime('%Y-%m-%d %H:%M:%S')  # created_at
             }
             for message in messages
         ]
