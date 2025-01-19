@@ -90,6 +90,11 @@ def database_schemas():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        cur.execute("""
+            ALTER TABLE messages
+            ADD COLUMN isRead BOOLEAN DEFAULT FALSE
+        """)
         cur.execute(""" 
             CREATE TABLE IF NOT EXISTS subscriptions (
                 id INT AUTO_INCREMENT PRIMARY KEY,
