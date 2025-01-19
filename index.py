@@ -1130,10 +1130,8 @@ def readMessageNow(data):
             UPDATE messages
             SET isRead = TRUE
             WHERE id IN ({placeholders})
-            AND email = %s
-            AND receiver_email = %s
         """
-        cur.execute(query, message_array + [sender, receiver])
+        cur.execute(query, message_array)
         conn.commit()
 
         # Get the receiver's socket ID
