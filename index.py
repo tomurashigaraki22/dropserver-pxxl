@@ -1759,10 +1759,21 @@ def handleSendMessage(data):
             VALUES (%s, %s, %s, %s)
         """, (sender, receiver, ride_reference, message))
         conn.commit()
-        print("Message saved to database.")
+        message_id = cur.lastrowid  # Retrieve the ID of the inserted message
+        print(f"Message saved to database with ID: {message_id}")
     except Exception as e:
         print("Error saving message to database:", e)
         conn.rollback()
+        return {"status": "error", "message": "Failed to save message"}
+
+    # Construct the message object
+    message_data = {
+        "id": message_id,       # Include the message ID
+        "message": message,     # The actual message text
+        "sender": sender,       # Sender's email
+        "receiver": receiver,   # Receiver's email
+        "ride_reference": ride_reference,  # Additional reference
+    }
 
     # Get the socket IDs of the receiver and sender from the connected_users dictionary
     sid_receiver = connected_users.get(receiver)
@@ -1771,23 +1782,17 @@ def handleSendMessage(data):
     # Emit the message to the receiver if they are connected
     if sid_receiver:
         sid_receiver_send = next(iter(sid_receiver))  # Assuming sid_receiver is a set or list of socket IDs
-        socketio.emit("message_received", {
-            "message": message,
-            "sender": sender,
-        }, to=sid_receiver_send)
+        socketio.emit("message_received", message_data, to=sid_receiver_send)
 
     # Emit the message to the sender for confirmation or feedback, if they are connected
     if sid_sender:
         sid_sender_send = next(iter(sid_sender))
-        socketio.emit("message_received", {
-            "message": message,
-            "sender": sender,
-        }, to=sid_sender_send)
+        socketio.emit("message_sent", message_data, to=sid_sender_send)
 
-    emit("message", {
-        "message": message,
-        "sender": sender
-    }, room=room)
+    # Broadcast the message to the room (if needed)
+    emit("message", message_data, room=room)
+
+    return {"status": "success", "message": "Message sent successfully", "id": message_id}
 
 
 
