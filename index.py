@@ -1115,9 +1115,10 @@ def readMessageNow(data):
         message_array = data.get("messages")  # List of message IDs to mark as read
         sender = data.get("sender")  # Sender's email
         receiver = data.get("receiver")  # Receiver's email
+        room_id = data.get("roomId")  # Room ID for group communication
 
         # Ensure valid input
-        if not message_array or not sender or not receiver:
+        if not message_array or not sender or not receiver or not room_id:
             return {"status": "error", "message": "Invalid data provided"}
 
         # Database connection
@@ -1134,24 +1135,17 @@ def readMessageNow(data):
         cur.execute(query, message_array)
         conn.commit()
 
-        # Get the receiver's socket ID
-        receiver_sids = connected_users.get(receiver)
-        if not receiver_sids:
-            print("Receiver is not connected")
-            return {"status": "error", "message": "Receiver is not connected"}
-
-        receiver_sid = next(iter(receiver_sids))  # Get the first active SID for the receiver
-
-        # Emit the message_read event to the specific receiver SID
-        print(f"Messages {message_array} marked as read")
+        # Emit the message_read event to all clients in the room
+        print(f"Messages {message_array} marked as read in room {room_id}")
         socketio.emit(
             "message_read",
             {
-                "message_array": message_array,
+                "messages": message_array,
                 "sender": sender,
-                "receiver": receiver
+                "receiver": receiver,
+                "isRead": 1
             },
-            to=receiver_sid
+            room=room_id  # Emit to the room
         )
 
         return {"status": "success", "message": "Messages marked as read"}
@@ -1161,6 +1155,7 @@ def readMessageNow(data):
     finally:
         if 'conn' in locals() and conn:
             conn.close()
+
 
 
 
@@ -1720,7 +1715,7 @@ def get_messages():
     try:
         cur = conn.cursor()  # Using cur instead of conn.cursor() context manager
         cur.execute("""
-            SELECT id, email, receiver_email, message, created_at 
+            SELECT id, email, receiver_email, message, created_at, isRead
             FROM messages 
             WHERE unique_identifier = %s 
             ORDER BY created_at ASC
@@ -1734,7 +1729,8 @@ def get_messages():
                 "sender": message[1],  # email
                 "receiver": message[2],  # receiver_email
                 "message": message[3],  # message
-                "timestamp": message[4].strftime('%Y-%m-%d %H:%M:%S')  # created_at
+                "timestamp": message[4].strftime('%Y-%m-%d %H:%M:%S'),
+                "isRead": message[5]
             }
             for message in messages
         ]
