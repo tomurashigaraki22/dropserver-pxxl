@@ -1463,8 +1463,7 @@ rejected_riders = {}
 @socketio.on('reject_ride')
 def handle_reject_ride(data):
     try:
-        # Extract the emails and other details from the data
-        print("Rejecting Ride")
+        print("Rejecting Ride - Received Data:", data)
         user_email = data.get('user_email')
         driver_email = data.get('driver_email')
         user_location = data.get('user_location')
@@ -1476,23 +1475,24 @@ def handle_reject_ride(data):
         
         print(f"UserLocation: {user_location}, DriverEmail: {driver_email}, UserEmail: {user_email}")
 
-        # Ensure both emails are provided
         if not user_email or not driver_email:
+            print("Missing user_email or driver_email")
             return emit('error', {'message': 'Missing user_email or driver_email'})
 
-        # Add the rejecting driver to the rejected riders list
+        # Add rejecting driver to the list of rejected riders
         if user_email in rejected_riders:
             rejected_riders[user_email].append(driver_email)
         else:
             rejected_riders[user_email] = [driver_email]
 
-        # Find the next closest available driver excluding rejected drivers
+        print(f"Updated rejected_riders: {rejected_riders}")
+
+        # Find the next closest available driver
         next_closest_rider = find_closest_riders(user_location, user_email, rejected_riders[user_email], choice)
-        print(next_closest_rider)
+        print("Next closest rider:", next_closest_rider)
 
         if not next_closest_rider:
-            # If no drivers are available, notify the user
-            print(f"No available drivers found for user: {user_email}")
+            print(f"No available drivers for user: {user_email}")
             user_sids = connected_users.get(user_email)
             if user_sids:
                 for user_sid in user_sids:
@@ -1502,15 +1502,21 @@ def handle_reject_ride(data):
                     }, to=user_sid)
             return jsonify({"message": "No available drivers", "status": 404})
 
-        # Assign the ride to the next closest rider
-        new_driver_email = next_closest_rider['email']
+        # Ensure next_closest_rider is a dictionary
+        if not isinstance(next_closest_rider, dict):
+            print("Error: next_closest_rider is not a dictionary")
+            return emit('error', {'message': 'Unexpected data structure for next_closest_rider'})
+
+        new_driver_email = next_closest_rider.get('email')
+        if not new_driver_email:
+            print("Error: new_driver_email is missing in next_closest_rider")
+            return emit('error', {'message': 'No email found for next closest driver'})
+
         ride_id = f"{extract_username(new_driver_email)}_{extract_username(user_email)}"
 
-        # Get the session ID (sid) of the new driver
         new_driver_sid = connected_users.get(new_driver_email)
-
         if new_driver_sid:
-            # Notify the new driver about the ride request
+            print(f"Notifying new driver: {new_driver_email}")
             socketio.emit('ride_request', {
                 'ride_id': ride_id,
                 'user_email': user_email,
@@ -1522,9 +1528,9 @@ def handle_reject_ride(data):
                 'destText': destText
             }, to=new_driver_sid)
 
-            # Notify the user that a new driver has been found
             user_sid = connected_users.get(user_email)
             if user_sid:
+                print(f"Notifying user: {user_email}")
                 socketio.emit('ride_rejected_new_driver', {
                     'ride_id': ride_id,
                     'message': f"A new driver {new_driver_email} has been found for your ride.",
@@ -1535,14 +1541,13 @@ def handle_reject_ride(data):
                     'amount': amount,
                     'destText': destText
                 }, to=user_sid)
-
         else:
-            # If the new driver is not connected, continue searching or return an error
+            print(f"New driver {new_driver_email} is not connected")
             return emit('error', {'message': 'New driver is not available at the moment'})
 
     except Exception as e:
+        print(f"An error occurred: {str(e)}")
         emit('error', {'message': f'An error occurred: {str(e)}'})
-
 
 
 @socketio.on('update_status')
