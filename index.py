@@ -1488,7 +1488,7 @@ def handle_reject_ride(data):
         print(f"Updated rejected_riders: {rejected_riders}")
 
         # Find the next closest available driver
-        next_closest_rider = find_closest_rider_main(user_location, user_email, rejected_riders, choice)
+        next_closest_rider = find_closest_rider_main(user_location, user_email, rejected_riders[user_email], choice)
         print("Next closest rider:", next_closest_rider)
 
         if not next_closest_rider:
