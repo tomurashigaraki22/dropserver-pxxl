@@ -1500,16 +1500,19 @@ def handle_reject_ride(data):
                         'message': 'No available drivers at the moment.',
                         'user_email': user_email
                     }, to=user_sid)
+                    rejected_riders[user_email] = []  # Reset for this user
             return jsonify({"message": "No available drivers", "status": 404})
 
         # Ensure next_closest_rider is a dictionary
         if not isinstance(next_closest_rider, dict):
             print("Error: next_closest_rider is not a dictionary")
+            rejected_riders[user_email] = []  # Reset for this user
             return emit('error', {'message': 'Unexpected data structure for next_closest_rider'})
 
         new_driver_email = next_closest_rider.get('email')
         if not new_driver_email:
             print("Error: new_driver_email is missing in next_closest_rider")
+            rejected_riders[user_email] = []  # Reset for this user
             return emit('error', {'message': 'No email found for next closest driver'})
 
         ride_id = f"{extract_username(new_driver_email)}_{extract_username(user_email)}"
@@ -1543,6 +1546,7 @@ def handle_reject_ride(data):
                 }, to=user_sid)
         else:
             print(f"New driver {new_driver_email} is not connected")
+            rejected_riders[user_email] = []  # Reset for this user
             return emit('error', {'message': 'New driver is not available at the moment'})
 
     except Exception as e:
