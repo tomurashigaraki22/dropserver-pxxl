@@ -4,7 +4,7 @@ from extensions.extensions import get_db_connection, socketio, app, mail
 from flask_mail import Message
 from extensions.db_schemas import database_schemas
 from functions.auth import userSignup, login, verifyEmail, changePassword, get_balance, add_to_balance, driverLogin, driverSignup, checkVerificationStatus, uploadVerificationImages, saveLinksToDB
-from functions.riders import haversine, find_closest_riders, endRide, endRide2, get_rider_location_by_email
+from functions.riders import haversine, find_closest_riders, endRide, endRide2, get_rider_location_by_email, find_closest_rider_main
 import re
 import datetime
 import json
@@ -1488,7 +1488,7 @@ def handle_reject_ride(data):
         print(f"Updated rejected_riders: {rejected_riders}")
 
         # Find the next closest available driver
-        next_closest_rider = find_closest_riders(user_location, user_email, rejected_riders[user_email], choice)
+        next_closest_rider = find_closest_rider_main(user_location, user_email, rejected_riders[user_email], choice)
         print("Next closest rider:", next_closest_rider)
 
         if not next_closest_rider:

@@ -99,6 +99,59 @@ def endRide():
         return jsonify({"Message": f"An error occurred: {str(e)}", "status": 500})
 
 
+def find_closest_rider_main(user_location, user_email, rejected_riders, choice):
+    # Get database connection
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    # Execute the query to fetch all driver locations except the current user
+    cur.execute("""
+        SELECT email, longitude, latitude, user_type, driver_type
+        FROM location 
+        WHERE email != %s
+    """, (user_email,))
+
+    locations = cur.fetchall()
+
+    # Close the cursor and connection
+    cur.close()
+    conn.close()
+
+    # Format the result as a list of dictionaries
+    available_riders = [
+        {
+            'email': row[0],
+            'longitude': float(row[1]),  # Convert Decimal to float
+            'latitude': float(row[2]),   # Convert Decimal to float
+            'user_type': row[3],
+            'choice': row[4],
+        }
+        for row in locations
+    ]
+
+    # List to store drivers along with their distance to the user
+    riders_with_distance = []
+    print(f"Available Riders: {available_riders}")
+
+    # Iterate through the list of available riders (from the DB result)
+    for rider in available_riders:
+        if rider['user_type'] == 'driver' and rider['email'] not in rejected_riders and rider['choice'] == choice:
+            rider_location = (rider['latitude'], rider['longitude'])
+            distance = haversine((user_location['latitude'], user_location['longitude']), rider_location)
+
+            # Append rider with their distance to the list
+            riders_with_distance.append({
+                'email': rider['email'],
+                'longitude': rider['longitude'],
+                'latitude': rider['latitude'],
+                'distance': distance
+            })
+
+    # Sort riders by distance from the user (closest to farthest)
+    sorted_riders = sorted(riders_with_distance, key=lambda x: x['distance'])
+
+    # Return the closest rider if available, or None
+    return sorted_riders[0] if sorted_riders else None
 
 
 
