@@ -1493,7 +1493,7 @@ def handle_reject_ride(data):
 
         if not next_closest_rider:
             print(f"No available drivers for user: {user_email}")
-            user_sids = next(iter(connected_users.get(user_email)))
+            user_sids = connected_users.get(user_email)
             if user_sids:
                 for user_sid in user_sids:
                     socketio.emit('no_available_drivers', {
