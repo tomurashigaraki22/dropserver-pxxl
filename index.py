@@ -1493,7 +1493,7 @@ def handle_reject_ride(data):
 
         if not next_closest_rider:
             print(f"No available drivers for user: {user_email}")
-            user_sids = connected_users.get(user_email)
+            user_sids = next(iter(connected_users.get(user_email)))
             if user_sids:
                 for user_sid in user_sids:
                     socketio.emit('no_available_drivers', {
@@ -1514,7 +1514,7 @@ def handle_reject_ride(data):
 
         ride_id = f"{extract_username(new_driver_email)}_{extract_username(user_email)}"
 
-        new_driver_sid = connected_users.get(new_driver_email)
+        new_driver_sid = next(iter(connected_users.get(new_driver_email)))
         if new_driver_sid:
             print(f"Notifying new driver: {new_driver_email}")
             socketio.emit('ride_request', {
@@ -1528,7 +1528,7 @@ def handle_reject_ride(data):
                 'destText': destText
             }, to=new_driver_sid)
 
-            user_sid = connected_users.get(user_email)
+            user_sid = next(iter(connected_users.get(user_email)))
             if user_sid:
                 print(f"Notifying user: {user_email}")
                 socketio.emit('ride_rejected_new_driver', {
