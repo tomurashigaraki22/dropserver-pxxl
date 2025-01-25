@@ -306,11 +306,11 @@ def send_otp():
 
     # Prepare payload as a JSON object
     payload = {
-        "api_key": api_key,
-        "to": phone_number,  # Ensure phone number is in international format
-        "sender_name": "SAlert",  # Alphanumeric or device name for WhatsApp (3-11 chars)
-        "message": f"Your OTP verification code is {otp}",
-        "route": "dnd",  # Use "generic", "dnd", or "whatsapp" as needed
+        "email": "devtomiwa9@gmail.com",
+        "password": "Pityboy@22",
+        "sender_name": "Drop",  # Alphanumeric or device name for WhatsApp (3-11 chars)
+        "message": f"Your OTP confirmation is {otp}",
+        "recipients": f"{phone_number}",  # Use "generic", "dnd", or "whatsapp" as needed
     }
 
     # Prepare headers for the request
@@ -321,7 +321,7 @@ def send_otp():
     }
 
     # Send the request to Sendchamp API
-    url = "https://api.sendchamp.com/api/v1/sms/send"
+    url = "https://app.multitexter.com/v2/app/sms"
     try:
         response = requests.request("POST", url, json=payload, headers=headers)
 
@@ -2332,6 +2332,6 @@ if __name__ == '__main__':
 
     try:
         # Run SocketIO server
-        socketio.run(app, host='0.0.0.0', port=1245, debug=True, use_reloader=True)
+        socketio.run(app, host='0.0.0.0', port=1234, debug=True, use_reloader=True)
     except Exception as e:
         print(f"Exception occurred when starting the SocketIO server: {str(e)}")
