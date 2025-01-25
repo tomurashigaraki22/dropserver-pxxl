@@ -2332,6 +2332,6 @@ if __name__ == '__main__':
 
     try:
         # Run SocketIO server
-        socketio.run(app, host='0.0.0.0', port=1234, debug=True, use_reloader=True)
+        socketio.run(app, host='0.0.0.0', port=1245, debug=True, use_reloader=True)
     except Exception as e:
         print(f"Exception occurred when starting the SocketIO server: {str(e)}")
