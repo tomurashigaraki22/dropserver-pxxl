@@ -308,8 +308,8 @@ def send_otp():
     payload = {
         "email": "devtomiwa9@gmail.com",
         "password": "Pityboy@22",
-        "sender_name": "Drop OTP",  # Alphanumeric or device name for WhatsApp (3-11 chars)
-        "message": f"Your OTP confirmation is {otp}",
+        "sender_name": "DropConfirmation",  # Alphanumeric or device name for WhatsApp (3-11 chars)
+        "message": f"Your confirmation is {otp}, Do not share this with anyone",
         "recipients": f"{phone_number}",  # Use "generic", "dnd", or "whatsapp" as needed
     }
 
