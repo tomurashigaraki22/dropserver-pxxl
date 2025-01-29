@@ -306,10 +306,8 @@ def send_otp():
 
     # Prepare payload as a JSON object
     payload = {
-        "email": "devtomiwa9@gmail.com",
-        "password": "Pityboy@22",
-        "sender_name": "Drop",  # Alphanumeric or device name for WhatsApp (3-11 chars)
-        "message": f"This is your confirmation   {otp}, Do not share this with anyone",
+        "sender_name": "Dropapp",  # Alphanumeric or device name for WhatsApp (3-11 chars)
+        "message": f"This is your confirmation {otp}, Do not share this with anyone",
         "recipients": f"{phone_number}",  # Use "generic", "dnd", or "whatsapp" as needed
     }
 
@@ -317,11 +315,11 @@ def send_otp():
     headers = {
         "Accept": "application/json,text/plain,*/*",
         "Content-Type": "application/json",
-        "Authorization": "Bearer sendchamp_live_$2a$10$hwBUr/pktOAqOngiqID76OLZovNmY5p6WModx3aqaKmGy7iKSTkka"
+        "Authorization": "Bearer 2LocCv72rQGsLouWVBV7axD261xKgxDPldC1FaU2aBLTsf3ruQbuVnBaMqWJ"
     }
 
     # Send the request to Sendchamp API
-    url = "https://app.multitexter.com/v2/app/sms"
+    url = "https://app.multitexter.com/v2/app/sendsms"
     try:
         response = requests.request("POST", url, json=payload, headers=headers)
 
