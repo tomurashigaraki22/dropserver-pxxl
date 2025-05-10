@@ -1,11 +1,12 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_socketio import emit, join_room, leave_room, SocketIO
-from extensions.extensions import get_db_connection, socketio, app, mail
+from extensions.extensions import get_db_connection, socketio, app, mail, sms
 from flask_mail import Message
 from extensions.db_schemas import database_schemas
 from functions.auth import userSignup, login, verifyEmail, changePassword, get_balance, add_to_balance, driverLogin, driverSignup, checkVerificationStatus, uploadVerificationImages, saveLinksToDB
 from functions.riders import haversine, find_closest_riders, endRide, endRide2, get_rider_location_by_email, find_closest_rider_main
 import re
+import africastalking
 import datetime
 import json
 from functions import token04
@@ -281,6 +282,8 @@ def send_otp():
     if not phone_number:
         return jsonify({"error": "Phone number is required"}), 400
 
+
+
     current_time = time.time()
 
     if phone_number in otp_storage:
@@ -298,17 +301,21 @@ def send_otp():
         otp_storage[phone_number] = {"request_count": 1}
 
     otp = random.randint(100000, 999999)
+
+    formatted_otp = f"{str(otp)[:3]} {str(otp)[3:]}"
+
     otp_storage[phone_number].update({
         "otp": otp,
         "timestamp": current_time,
         "last_request_time": current_time,
     })
 
-    # Prepare payload as a JSON object
+    # Prepare payload for EBulkSMS API
     payload = {
-        "sender_name": "Dropapp",  # Alphanumeric or device name for WhatsApp (3-11 chars)
+        "sender_name": "MainArray",  # Alphanumeric or device name for WhatsApp (3-11 chars)
         "message": f"This is your confirmation {otp}, Do not share this with anyone",
-        "recipients": f"{phone_number}",  # Use "generic", "dnd", or "whatsapp" as needed
+        "number": f"{phone_number}",  # Use "generic", "dnd", or "whatsapp" as needed
+        "forcednd": 1
     }
 
     # Prepare headers for the request
@@ -319,7 +326,7 @@ def send_otp():
     }
 
     # Send the request to Sendchamp API
-    url = "https://app.multitexter.com/v2/app/sendsms"
+    url = "http://16.171.44.32:3000/send-otp"
     try:
         response = requests.request("POST", url, json=payload, headers=headers)
 
@@ -330,7 +337,6 @@ def send_otp():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 @app.route('/verify-otp', methods=['POST'])
 def verify_otp():
@@ -343,6 +349,9 @@ def verify_otp():
 
     # Retrieve the OTP metadata
     otp_data = otp_storage.get(phone_number)
+
+
+
 
     if not otp_data:
         return jsonify({"error": "No OTP found for this phone number"}), 400
@@ -2327,6 +2336,6 @@ if __name__ == '__main__':
 
     try:
         # Run SocketIO server
-        socketio.run(app, host='0.0.0.0', port=1245, debug=True, use_reloader=True)
+        socketio.run(app, host='0.0.0.0', port=1235, debug=True, use_reloader=True)
     except Exception as e:
         print(f"Exception occurred when starting the SocketIO server: {str(e)}")

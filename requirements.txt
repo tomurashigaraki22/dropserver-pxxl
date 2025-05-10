@@ -17,3 +17,4 @@ requests
 twilio
 vonage
 termii_sdk
+africastalking

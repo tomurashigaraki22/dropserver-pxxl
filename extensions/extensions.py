@@ -7,6 +7,7 @@ from flask_mail import Mail, Message
 from flask_cors import CORS
 from vonage import Vonage, Auth, HttpClientOptions
 from engineio.payload import Payload
+import africastalking
 
 load_dotenv()
 app = Flask(__name__)
@@ -28,6 +29,13 @@ CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
 socketio = SocketIO(app, max_http_buffer_size=10**7, async_mode='eventlet', cors_allowed_origins="*")
 auth = Auth(api_key="087173e5", api_secret="I3bLsoCnrlJALfcK")
 client = Vonage(auth=auth)
+
+africastalking.initialize(
+    username=os.getenv("AT_USERNAME"),
+    api_key=os.getenv("AT_API_KEY")
+)
+
+sms = africastalking.SMS
 
 def get_db_connection():
     connection = pymysql.connect(
