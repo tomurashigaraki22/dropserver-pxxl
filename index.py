@@ -2212,6 +2212,197 @@ def get_rides():
         print(f"Error occurred: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/get-analytics-data', methods=['GET'])
+def get_analytics_data():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Get rides overview (rides per day for the last 30 days)
+        cur.execute("""
+            SELECT DATE(created_at) as date, COUNT(*) as count
+            FROM user_rides
+            WHERE created_at >= DATE_SUB(CURRENT_DATE, INTERVAL 120 DAY)
+            GROUP BY DATE(created_at)
+            ORDER BY date
+        """)
+        rides_overview = [{"date": str(row[0]), "count": row[1]} for row in cur.fetchall()]
+        print(f"Rides overview: {rides_overview}")
+        # Get revenue trends (assuming each completed ride costs ₦1000)
+        cur.execute("""
+            SELECT DATE(created_at) as date, COUNT(*) * 1000 as amount
+            FROM user_rides
+            WHERE status = 'ongoing' 
+            AND created_at >= DATE_SUB(CURRENT_DATE, INTERVAL 120 DAY)
+            GROUP BY DATE(created_at)
+            ORDER BY date
+        """)
+        revenue_trends = [{"date": str(row[0]), "amount": row[1]} for row in cur.fetchall()]
+        print(f"Revenue trends: {revenue_trends}")
+        # Get user growth (new users per day)
+        cur.execute("""
+            SELECT DATE(created_at) as date, COUNT(*) as count
+            FROM userauth
+            WHERE created_at >= DATE_SUB(CURRENT_DATE, INTERVAL 120 DAY)
+            GROUP BY DATE(created_at)
+            ORDER BY date
+        """)
+        user_growth = [{"date": str(row[0]), "count": row[1]} for row in cur.fetchall()]
+        print(f"User growth: {user_growth}")
+        # Get popular routes (most frequent pickup locations)
+        cur.execute("""
+            SELECT 
+                CONCAT(
+                    ROUND(CAST(latitude AS DECIMAL(10,6)), 2), ',',
+                    ROUND(CAST(longitude AS DECIMAL(10,6)), 2)
+                ) as route,
+                COUNT(*) as count
+            FROM user_rides ur
+            JOIN location l ON l.email = ur.email
+            GROUP BY route
+            ORDER BY count DESC
+            LIMIT 5
+        """)
+        popular_routes = [{"route": row[0], "count": row[1]} for row in cur.fetchall()]
+        print(f"Popular routes: {popular_routes}")
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "status": 200,
+            "data": {
+                "ridesOverview": rides_overview,
+                "revenueTrends": revenue_trends,
+                "userGrowth": user_growth,
+                "popularRoutes": popular_routes
+            }
+        })
+
+    except Exception as e:
+        print(f"Error in get_analytics_data: {str(e)}")
+        return jsonify({
+            "status": 500,
+            "error": str(e)
+        }), 500
+
+@app.route('/get-monthly-signups', methods=['GET'])
+def get_monthly_signups():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT 
+                DATE_FORMAT(created_at, '%Y-%m') as month,
+                COUNT(*) as count
+            FROM userauth
+            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+            GROUP BY month
+            ORDER BY month
+        """)
+        
+        monthly_data = [{"month": row[0], "count": row[1]} for row in cur.fetchall()]
+        
+        cur.close()
+        conn.close()
+
+        return jsonify({"status": 200, "data": monthly_data})
+
+    except Exception as e:
+        return jsonify({"status": 500, "error": str(e)}), 500
+
+@app.route('/get-dashboard-stats', methods=['GET'])
+def get_dashboard_stats():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        print("Nawa for you")
+
+        # Get total users
+        cur.execute("SELECT COUNT(*) FROM userauth WHERE user_type = 'user'")
+        total_users = cur.fetchone()[0]
+
+        # Get total rides
+        cur.execute("SELECT COUNT(*) FROM user_rides")
+        total_rides = cur.fetchone()[0]
+
+        # Get active drivers
+        cur.execute("""
+            SELECT COUNT(*) FROM userauth 
+            WHERE user_type = 'driver' 
+            AND email IN (SELECT email FROM driver_location)
+        """)
+        active_drivers = cur.fetchone()[0]
+
+        # Get total revenue (assuming ₦1000 per completed ride)
+        cur.execute("SELECT COUNT(*) FROM user_rides WHERE status = 'completed'")
+        total_revenue = cur.fetchone()[0] * 1000
+
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "status": 200,
+            "data": {
+                "totalUsers": total_users,
+                "totalRides": total_rides,
+                "activeDrivers": active_drivers,
+                "revenue": total_revenue
+            }
+        })
+
+    except Exception as e:
+        return jsonify({"status": 500, "error": str(e)}), 500
+
+@app.route('/get-all-rides', methods=['GET'])
+def get_all_rides():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Get all rides with user and driver information
+        cur.execute("""
+            SELECT r.id, r.email, r.driver_email, r.ride_id, 
+                   r.created_at, r.status, r.reference_id,
+                   u1.name as user_name, u2.name as driver_name
+            FROM user_rides r
+            LEFT JOIN userauth u1 ON r.email = u1.email
+            LEFT JOIN userauth u2 ON r.driver_email = u2.email
+            ORDER BY r.created_at DESC
+        """)
+        
+        rides = cur.fetchall()
+        
+        # Format the results
+        formatted_rides = [{
+            'id': ride[0],
+            'email': ride[1],
+            'driver_email': ride[2],
+            'ride_id': ride[3],
+            'created_at': ride[4].isoformat() if ride[4] else None,
+            'status': ride[5],
+            'reference_id': ride[6],
+            'user_name': ride[7] or 'Unknown User',
+            'driver_name': ride[8] or 'Unknown Driver'
+        } for ride in rides]
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            "status": 200,
+            "data": formatted_rides
+        })
+    
+    except Exception as e:
+        print(f"Error in get_all_rides: {str(e)}")
+        return jsonify({
+            "status": 500,
+            "error": str(e)
+        }), 500
+
+
 @app.route('/getUsers', methods=['GET'])
 def get_users():
     try:
@@ -2293,10 +2484,8 @@ def getVerificationDetails():
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # Query to fetch all details from verificationdetails
+        # First get all verification details
         cur.execute("SELECT * FROM verificationdetails")
-
-        # Fetch all rows
         details = cur.fetchall()
 
         # Define the keys (table column names)
@@ -2307,7 +2496,21 @@ def getVerificationDetails():
         ]
 
         # Format the data into an array of dictionaries
-        verification_data = [dict(zip(keys, row)) for row in details]
+        verification_data = []
+        
+        for row in details:
+            # Create a dictionary from the current row
+            data_dict = dict(zip(keys, row))
+            
+            # Get phone number from userauth table for this email
+            cur.execute("SELECT phone_number FROM userauth WHERE email = %s", (data_dict['email'],))
+            user_result = cur.fetchone()
+            
+            if user_result and user_result[0]:
+                # Update phone number with the one from userauth
+                data_dict['phone_number'] = user_result[0]
+            
+            verification_data.append(data_dict)
 
         # Close the connection
         cur.close()
@@ -2325,6 +2528,223 @@ def getVerificationDetails():
 ### end of admin side
 
 
+
+@app.route('/get-all-users', methods=['GET'])
+def get_all_users():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Query to get all users with their details
+        cur.execute("""
+            SELECT 
+                email,
+                phone_number,
+                user_type,
+                balance,
+                age,
+                gender,
+                created_at,
+                CASE 
+                    WHEN EXISTS (
+                        SELECT 1 FROM verificationdetails 
+                        WHERE verificationdetails.email = userauth.email 
+                        AND verificationdetails.status = 'approved'
+                    ) THEN 'Verified'
+                    ELSE 'Pending'
+                END as verification_status
+            FROM userauth
+            ORDER BY created_at DESC
+        """)
+        
+        users = cur.fetchall()
+        
+        # Format the results
+        formatted_users = [{
+            'email': user[0],
+            'phone_number': user[1] if user[1] else 'Not provided',
+            'user_type': user[2],
+            'balance': user[3],
+            'age': user[4],
+            'gender': user[5],
+            'created_at': str(user[6]),
+            'status': user[7]
+        } for user in users]
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'status': 200,
+            'data': formatted_users
+        })
+        
+    except Exception as e:
+        print(f"Error in get_all_users: {str(e)}")  # Add logging for debugging
+        return jsonify({
+            'status': 500,
+            'message': f'An error occurred: {str(e)}'
+        }), 500
+
+@app.route('/get-subscription-revenue', methods=['GET'])
+def get_subscription_revenue():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Get current date
+        cur.execute("SELECT CURRENT_DATE")
+        current_date = cur.fetchone()[0]
+
+        # Calculate monthly revenue (current month)
+        cur.execute("""
+            SELECT 
+                COUNT(*) as driver_count,
+                SUM(
+                    CASE 
+                        WHEN months_paid = 1 THEN 10000
+                        WHEN months_paid = 2 THEN 18000
+                        WHEN months_paid = 3 THEN 35000
+                        WHEN months_paid = 6 THEN 50000
+                        WHEN months_paid = 12 THEN 90000
+                        ELSE months_paid * 10000
+                    END
+                ) as total_revenue
+            FROM subscriptions 
+            WHERE MONTH(created_at) = MONTH(CURRENT_DATE)
+            AND YEAR(created_at) = YEAR(CURRENT_DATE)
+        """)
+        monthly_result = cur.fetchone()
+        monthly_drivers = monthly_result[0] if monthly_result else 0
+        monthly_revenue = monthly_result[1] if monthly_result and monthly_result[1] else 0
+
+        # Calculate yearly revenue (current year)
+        cur.execute("""
+            SELECT 
+                COUNT(*) as driver_count,
+                SUM(
+                    CASE 
+                        WHEN months_paid = 1 THEN 10000
+                        WHEN months_paid = 2 THEN 18000
+                        WHEN months_paid = 3 THEN 35000
+                        WHEN months_paid = 6 THEN 50000
+                        WHEN months_paid = 12 THEN 90000
+                        ELSE months_paid * 10000
+                    END
+                ) as total_revenue
+            FROM subscriptions 
+            WHERE YEAR(created_at) = YEAR(CURRENT_DATE)
+        """)
+        yearly_result = cur.fetchone()
+        yearly_drivers = yearly_result[0] if yearly_result else 0
+        yearly_revenue = yearly_result[1] if yearly_result and yearly_result[1] else 0
+
+        # Get monthly breakdown
+        cur.execute("""
+            SELECT 
+                DATE_FORMAT(created_at, '%Y-%m') as month,
+                COUNT(*) as driver_count,
+                SUM(
+                    CASE 
+                        WHEN months_paid = 1 THEN 10000
+                        WHEN months_paid = 2 THEN 18000
+                        WHEN months_paid = 3 THEN 35000
+                        WHEN months_paid = 6 THEN 50000
+                        WHEN months_paid = 12 THEN 90000
+                        ELSE months_paid * 10000
+                    END
+                ) as revenue
+            FROM subscriptions
+            WHERE created_at >= DATE_SUB(CURRENT_DATE, INTERVAL 12 MONTH)
+            GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+            ORDER BY month DESC
+        """)
+        monthly_breakdown = [
+            {
+                "month": str(row[0]),
+                "driver_count": row[1],
+                "revenue": row[2]
+            }
+            for row in cur.fetchall()
+        ]
+
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "status": 200,
+            "data": {
+                "monthly": {
+                    "drivers": monthly_drivers,
+                    "revenue": monthly_revenue
+                },
+                "yearly": {
+                    "drivers": yearly_drivers,
+                    "revenue": yearly_revenue
+                },
+                "monthly_breakdown": monthly_breakdown
+            }
+        })
+
+    except Exception as e:
+        print(f"Error in get_subscription_revenue: {str(e)}")
+        return jsonify({
+            "status": 500,
+            "error": str(e)
+        }), 500
+
+        
+@app.route('/get-driver-verification-stats', methods=['GET'])
+def get_driver_verification_stats():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Get total number of drivers
+        cur.execute("""
+            SELECT COUNT(*) as total_drivers
+            FROM userauth
+            WHERE user_type = 'driver'
+        """)
+        total_drivers = cur.fetchone()[0]
+
+        # Get number of verified drivers by joining tables
+        cur.execute("""
+            SELECT COUNT(*) as verified_drivers 
+            FROM userauth u 
+            JOIN verificationdetails v ON u.email = v.email 
+            WHERE u.user_type = 'driver' 
+            AND (
+                v.status = 'verified' OR 
+                v.status = 'success' OR 
+                v.status = 'approved' OR 
+                v.status = 'Verified' OR 
+                v.status = 'Approved'
+            )
+        """)
+        verified_drivers = cur.fetchone()[0]
+
+        # Calculate unverified drivers
+        unverified_drivers = total_drivers - verified_drivers
+
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "status": 200,
+            "data": {
+                "total_drivers": total_drivers,
+                "verified_drivers": verified_drivers,
+                "unverified_drivers": unverified_drivers
+            }
+        })
+
+    except Exception as e:
+        print(f"Error in get_driver_verification_stats: {str(e)}")
+        return jsonify({
+            "status": 500,
+            "error": str(e)
+        }), 500
 
 if __name__ == '__main__':
     try:
