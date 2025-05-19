@@ -2746,6 +2746,27 @@ def get_driver_verification_stats():
             "error": str(e)
         }), 500
 
+def init_database():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Read and execute the SQL dump file
+        with open('dumpfile.sql', 'r') as f:
+            sql_script = f.read()
+            
+        # Split and execute multiple statements
+        for statement in sql_script.split(';'):
+            if statement.strip():
+                cur.execute(statement)
+                
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("Database initialized successfully")
+    except Exception as e:
+        print(f"Error initializing database: {str(e)}")
+
 if __name__ == '__main__':
     try:
         # Initialize database schemas
@@ -2755,13 +2776,12 @@ if __name__ == '__main__':
         print(f"Exception occurred when initializing database schemas: {str(e)}")
 
     try:
+        # init_database()
         socketio.run(
         app,
         host='0.0.0.0',
         port=1235,
-        debug=True,
-        certfile='ssl/cert.pem',
-        keyfile='ssl/key.pem'
+        debug=True
     )
     except Exception as e:
         print(f"Exception occurred when starting the SocketIO server: {str(e)}")

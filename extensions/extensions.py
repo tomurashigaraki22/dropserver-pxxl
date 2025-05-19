@@ -9,7 +9,6 @@ from vonage import Vonage, Auth, HttpClientOptions
 from engineio.payload import Payload
 import africastalking
 from gevent import monkey
-monkey.patch_all()
 
 load_dotenv()
 app = Flask(__name__)
@@ -37,9 +36,8 @@ ssl_context = (
 socketio = SocketIO(
     app, 
     max_http_buffer_size=10**7, 
-    async_mode='gevent', 
-    cors_allowed_origins="*",
-    ssl_context=ssl_context
+    async_mode='eventlet', 
+    cors_allowed_origins="*"
 )
 auth = Auth(api_key="087173e5", api_secret="I3bLsoCnrlJALfcK")
 client = Vonage(auth=auth)
