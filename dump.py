@@ -8,6 +8,7 @@ user = "avnadmin"
 password = "AVNS_Qq4sDCTSQFg2EbiHweg"
 database = "defaultdb"
 ssl_ca = "./ca-cert.pem"  # Path to your CA certificate
+#Comment github ke: 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
 dump_file = "dumpfile.sql"  # Output file for the dump
 
 # Establishing a connection to MySQL

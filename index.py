@@ -2755,7 +2755,13 @@ if __name__ == '__main__':
         print(f"Exception occurred when initializing database schemas: {str(e)}")
 
     try:
-        # Run SocketIO server
-        socketio.run(app, host='0.0.0.0', port=1235, debug=True, use_reloader=True)
+        socketio.run(
+        app,
+        host='0.0.0.0',
+        port=1235,
+        debug=True,
+        certfile='ssl/cert.pem',
+        keyfile='ssl/key.pem'
+    )
     except Exception as e:
         print(f"Exception occurred when starting the SocketIO server: {str(e)}")

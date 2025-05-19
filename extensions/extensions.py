@@ -8,6 +8,8 @@ from flask_cors import CORS
 from vonage import Vonage, Auth, HttpClientOptions
 from engineio.payload import Payload
 import africastalking
+from gevent import monkey
+monkey.patch_all()
 
 load_dotenv()
 app = Flask(__name__)
@@ -21,12 +23,24 @@ app.config["MAIL_USERNAME"] = "noreply.dropapp@gmail.com"  # Your email username
 app.config["MAIL_PASSWORD"] = "iaik logl kifo tzzw"  # Your email password
 app.config["MAIL_DEFAULT_SENDER"] = os.getenv("MAIL_DEFAULT_SENDER")  # Default sender email address
 
-# Initialize SocketIO with Eventlet
+# Initialize SocketIO with Gevent and SSL settings
 Payload.max_decode_packets = 500
 mail = Mail(app)
-CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
+CORS(app, resources={r"/*": {"origins": "*"}})
 
-socketio = SocketIO(app, max_http_buffer_size=10**7, async_mode='eventlet', cors_allowed_origins="*")
+# Configure SSL context
+ssl_context = (
+    'ssl/cert.pem',  # Certificate path
+    'ssl/key.pem'    # Private key path
+)
+
+socketio = SocketIO(
+    app, 
+    max_http_buffer_size=10**7, 
+    async_mode='gevent', 
+    cors_allowed_origins="*",
+    ssl_context=ssl_context
+)
 auth = Auth(api_key="087173e5", api_secret="I3bLsoCnrlJALfcK")
 client = Vonage(auth=auth)
 
