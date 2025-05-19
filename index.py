@@ -2779,8 +2779,8 @@ if __name__ == '__main__':
         # init_database()
         socketio.run(
         app,
-        host='0.0.0.0',
-        port=443,
+        host='127.0.0.1',
+        port=8443,
         debug=True
     )
     except Exception as e:
