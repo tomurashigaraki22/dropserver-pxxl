@@ -278,10 +278,11 @@ def showOTPS():
 def send_otp():
     data = request.get_json()
     phone_number = data.get('phone_number')
+    print(f"Phone Number: {phone_number}")
 
     if not phone_number:
         return jsonify({"error": "Phone number is required"}), 400
-
+    
 
 
     current_time = time.time()
@@ -317,8 +318,9 @@ def send_otp():
         "number": f"{phone_number}",  # Use "generic", "dnd", or "whatsapp" as needed
         "forcednd": 1
     }
+    message = f"This is your confirmation {otp}, Do not share this with anyone"
 
-    # Prepare headers for the request
+    # # Prepare headers for the request
     headers = {
         "Accept": "application/json,text/plain,*/*",
         "Content-Type": "application/json",
@@ -326,16 +328,18 @@ def send_otp():
     }
 
     # Send the request to Sendchamp API
-    url = "http://16.171.44.32:3000/send-otp"
+    url = f"http://148.113.201.195:3000/send?phone={phone_number}&message={message}"
     try:
         response = requests.request("POST", url, json=payload, headers=headers)
-
+        print(f"Responsse: {response}")
         if response.status_code == 200:
             return jsonify({"message": "SMS sent successfully", "response": response.json()})
         else:
+            print(f"response issues: {response.status_code} {response.text}")
             return jsonify({"error": response.text}), response.status_code
 
     except Exception as e:
+        print(f"exception: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/verify-otp', methods=['POST'])
@@ -2779,8 +2783,8 @@ if __name__ == '__main__':
         # init_database()
         socketio.run(
         app,
-        host='127.0.0.1',
-        port=5000,
+        host='0.0.0.0',
+        port=1234,
         debug=True
     )
     except Exception as e:

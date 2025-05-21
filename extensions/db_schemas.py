@@ -5,6 +5,18 @@ def database_schemas():
         conn = get_db_connection()
         cur = conn.cursor()
 
+        # cur.execute("SET FOREIGN_KEY_CHECKS = 0")
+        # cur.execute("TRUNCATE TABLE location")
+        # cur.execute("TRUNCATE TABLE pushtoken")
+        # cur.execute("TRUNCATE TABLE driver_location")
+        # cur.execute("TRUNCATE TABLE userauth")
+        # cur.execute("TRUNCATE TABLE verificationdetails")
+        # cur.execute("TRUNCATE TABLE messages")
+        # cur.execute("TRUNCATE TABLE subscriptions")
+        # cur.execute("TRUNCATE TABLE user_rides")
+        # cur.execute("TRUNCATE TABLE driver_rides")
+        # cur.execute("SET FOREIGN_KEY_CHECKS = 1")
+
         # Create tables if they do not exist
         cur.execute(""" 
             CREATE TABLE IF NOT EXISTS location (
@@ -69,7 +81,7 @@ def database_schemas():
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 email VARCHAR(80) NOT NULL,
                 phone_number VARCHAR(255) NOT NULL,
-                gender VARCHAR(80) NOT NULL,
+                gender VARCHAR(80) NULL,
                 plate_number VARCHAR(80) NOT NULL,
                 driver_photo VARCHAR(255),
                 license_photo VARCHAR(255),
@@ -79,6 +91,10 @@ def database_schemas():
                 driver_with_car_photo VARCHAR(255),
                 status VARCHAR(80) NOT NULL DEFAULT 'pending'
             );
+        """)
+
+        cur.execute("""ALTER TABLE verificationdetails
+            MODIFY COLUMN gender VARCHAR(80) DEFAULT NULL;
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS messages(
