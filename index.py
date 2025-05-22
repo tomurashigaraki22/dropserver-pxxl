@@ -328,9 +328,9 @@ def send_otp():
     }
 
     # Send the request to Sendchamp API
-    url = f"http://148.113.201.195:3000/send?phone={phone_number}&message={message}"
+    url = f"https://dropserver.shop/whatsapp/send?phone={phone_number}&message={message}"
     try:
-        response = requests.request("POST", url, json=payload, headers=headers)
+        response = requests.request("GET", url, headers=headers)
         print(f"Responsse: {response}")
         if response.status_code == 200:
             return jsonify({"message": "SMS sent successfully", "response": response.json()})
