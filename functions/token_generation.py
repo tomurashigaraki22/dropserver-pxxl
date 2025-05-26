@@ -59,7 +59,7 @@ def generate_new_token(channelName):
     """
     try:
         # API endpoint
-        url = "https://dropserver.shop/token/getNew"
+        url = "https://dropserver.shop/token/token/getNew"
         
         # Headers
         headers = {
