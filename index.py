@@ -410,7 +410,7 @@ def alterTable():
         cur = conn.cursor()
 
         cur.execute("""
-            DELETE FROM userauth
+            DELETE FROM call_tokens
         """)
         # Execute the ALTER TABLE queries to add new column
 
@@ -1187,6 +1187,7 @@ def handle_initiate_call(data):
         # Extract required data
         print("GOT HERE")
         calling = data.get('calling')
+        channel_name = data.get("channel_name")
         caller = data.get("caller")
         callId = data.get("callId")
         whoCalled = data.get("whoCalled")
@@ -1206,6 +1207,7 @@ def handle_initiate_call(data):
 
         # Emit the incoming call event to each session ID of the receiver
         sid = next(iter(receiver_sids))
+
         if whoCalled == "driver":
             call_url = f"https://call-rn.vercel.app/?userId={caller}&driverId={calling}&initiator=false"
         else:
@@ -1216,6 +1218,7 @@ def handle_initiate_call(data):
             {
                 "callId": callId,
                 "caller": caller,
+                "channel_name": channel_name,
                 "callUrl": call_url
             },
             to=sid  # Specify the target client
