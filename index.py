@@ -53,12 +53,25 @@ auth_token = '184afd262a3f28fb7d19940a65b89173'  # Replace with your Auth Token
 verify_service_sid = 'VAeb468b05e465cc3f8ff7d22af6a06753'  # Replace with your Service SID
 client = Client(account_sid, auth_token)
 VONAGE_BRAND_NAME = "Twinkkles Drop"
+from functions.token_generation import get_call_token
+
 
 otp_storage = {}
 OTP_EXPIRY_SECONDS = 300  # 5 minutes
 REQUEST_LIMIT_TIME_WINDOW = 60  # 1 minute
 REQUEST_LIMIT_COUNT = 3  # Max 3 requests per window
 
+@app.route("/get-token", methods=["POST"])
+def getTokenCall():
+    try:
+        return get_call_token()
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "message": "Failed to generate token"
+        }), 500
+        
 
 @app.route("/get_push_token", methods=["POST"])
 def getPushTokenNow():

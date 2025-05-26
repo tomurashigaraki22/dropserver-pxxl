@@ -17,6 +17,23 @@ def database_schemas():
         # cur.execute("TRUNCATE TABLE driver_rides")
         # cur.execute("SET FOREIGN_KEY_CHECKS = 1")
 
+        # In the database_schemas() function, update the call_tokens table creation:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS call_tokens (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                token VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                is_expired BOOLEAN DEFAULT FALSE
+            )
+        """)
+
+        cur.execute("""
+            ALTER TABLE call_tokens
+            ADD COLUMN channel_name VARCHAR(255) NOT NULL
+        """)
+
         # Create tables if they do not exist
         cur.execute(""" 
             CREATE TABLE IF NOT EXISTS location (
