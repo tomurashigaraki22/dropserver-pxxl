@@ -526,20 +526,26 @@ def endTheRide2():
 
 def calculate_expiration_date(months_paid):
     # Calculate the expiration date based on the number of months paid
-    return datetime.datetime.now() + datetime.timedelta(days=months_paid * 30)  # Approximation
+    # Convert months_paid to float to handle decimal values
+    days = float(months_paid) * 30  # Approximation of days (30 days per month)
+    return datetime.datetime.now() + datetime.timedelta(days=days)
 
 @app.route('/subscribe', methods=['POST'])
 def subscribe_user():
-    # Extract data from the request form
-    email = request.form.get('email')
-    transaction_id, reference_id = generate_transaction_and_reference_ids()  # Assuming you have this function
-    months_paid = int(request.form.get('months_paid', 0))  # Convert to int with a default of 0
-
-    # Validate inputs
-    if not email or not transaction_id or not reference_id or months_paid <= 0:
-        return jsonify({"message": "Invalid input parameters.", "status": 400})
-
     try:
+        # Get data from JSON request
+        data = request.get_json()
+        email = data.get('email')
+        months_paid = float(data.get('months_paid', 0.5))  # Default to 0.5 if not provided
+        transaction_id, reference_id = generate_transaction_and_reference_ids()
+
+        # Validate inputs
+        if not email or not transaction_id or not reference_id or months_paid <= 0:
+            return jsonify({
+                "message": "Invalid input parameters.", 
+                "status": 400
+            }), 400
+
         # Connect to the database
         conn = get_db_connection()
         cur = conn.cursor()
@@ -548,11 +554,11 @@ def subscribe_user():
         expiration_date = calculate_expiration_date(months_paid)
 
         # Debugging output
-        print("Email:", email)
-        print("Transaction ID:", transaction_id)
-        print("Reference ID:", reference_id)
-        print("Months Paid:", months_paid)
-        print("Expiration Date:", expiration_date)
+        print(f"Email: {email}")
+        print(f"Transaction ID: {transaction_id}")
+        print(f"Reference ID: {reference_id}")
+        print(f"Months Paid: {months_paid}")
+        print(f"Expiration Date: {expiration_date}")
 
         # Insert the subscription into the database
         cur.execute("""
@@ -561,11 +567,21 @@ def subscribe_user():
         """, (email, transaction_id, reference_id, months_paid, expiration_date))
 
         conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "message": "Subscription created successfully.", 
+            "expires_at": expiration_date.isoformat(), 
+            "status": 201
+        }), 201
 
     except Exception as e:
-        return jsonify({"message": f"An error occurred: {str(e)}", "status": 500})
-
-    return jsonify({"message": "Subscription created successfully.", "expires_at": expiration_date, "status": 201})
+        print(f"Error in subscription: {str(e)}")
+        return jsonify({
+            "message": f"An error occurred: {str(e)}", 
+            "status": 500
+        }), 500
 
 
 @app.route('/check_subscription', methods=['POST'])
@@ -2786,6 +2802,134 @@ def init_database():
         print("Database initialized successfully")
     except Exception as e:
         print(f"Error initializing database: {str(e)}")
+
+
+@app.route('/check-trial-eligibility', methods=['POST'])
+def check_trial_eligibility():
+    try:
+        # Get email from request JSON
+        data = request.get_json()
+        email = data.get('email')
+
+        if not email:
+            return jsonify({
+                'status': 400,
+                'message': 'Email is required'
+            }), 400
+
+        # Connect to database
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # First check if user has any previous subscriptions
+        cur.execute("""
+            SELECT COUNT(*) 
+            FROM subscriptions 
+            WHERE email = %s
+        """, (email,))
+        
+        subscription_count = cur.fetchone()[0]
+        
+        if subscription_count > 0:
+            return jsonify({
+                'status': 200,
+                'data': {
+                    'is_eligible': False,
+                    'reason': 'User has previous subscriptions',
+                    'subscription_count': subscription_count
+                }
+            }), 200
+
+        # Get user's creation date
+        cur.execute("""
+            SELECT created_at 
+            FROM userauth 
+            WHERE email = %s
+        """, (email,))
+        
+        result = cur.fetchone()
+        
+        if not result:
+            return jsonify({
+                'status': 404,
+                'message': 'User not found'
+            }), 404
+
+        created_at = result[0]
+        print(f"Created at: {created_at}")
+        current_time = datetime.datetime.now()
+        days_since_creation = (current_time - created_at).days
+        print(f"Days since creation: {days_since_creation}")
+
+        # Check if user is eligible (less than 13 days old)
+        is_eligible = days_since_creation < 13
+        days_remaining = 13 - days_since_creation if is_eligible else 0
+
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            'status': 200,
+            'data': {
+                'is_eligible': is_eligible,
+                'days_since_creation': days_since_creation,
+                'days_remaining': days_remaining,
+                'account_created_at': created_at.isoformat(),
+                'has_previous_subscriptions': False
+            }
+        }), 200
+
+    except Exception as e:
+        print(f"Error checking trial eligibility: {str(e)}")
+        return jsonify({
+            'status': 500,
+            'message': f'An error occurred: {str(e)}'
+        }), 500
+
+
+# @app.route("/subscribe-user", methods=["POST"])
+# def subscribe_user_now():
+#     try:
+#         # Get email and months_paid from request JSON
+#         data = request.get_json()
+#         email = data.get('email')
+#         months_paid = data.get('months_paid')
+#         conn = get_db_connection()
+#         cur = conn.cursor()
+
+#         if not email or not months_paid:
+#             return jsonify({
+#                 'status': 400,
+#                 'message': 'Email and months_paid are required'
+#             }), 400
+        
+#         # Check if user exists
+#         cur.execute("SELECT * FROM userauth WHERE email = %s", (email,))
+#         user = cur.fetchone()
+#         if not user:
+#             return jsonify({
+#                 'status': 404,
+#                 'message': 'User not found'
+#             }), 404
+
+#         try:
+#             result = subscribe_user2(email=email, months_paid=1)
+#             if result.get_json().get("status") != 201:
+#                 print("Subscription creation failed:", result.get_json())
+#         except Exception as e:
+#             print(f"An error occurred while creating subscription: {str(e)}")
+
+#         return jsonify({
+#             'status': 200,
+#             'message': 'Subscription created successfully'
+#         }), 200
+#     except Exception as e:
+#         print(f"An error occurred while subscribing user: {str(e)}")
+#         return jsonify({
+#             'status': 500,
+#             'message': f'An error occurred: {str(e)}'
+#         }), 500
+
 
 if __name__ == '__main__':
     try:

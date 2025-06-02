@@ -477,12 +477,12 @@ def driverSignup():
         cur.close()
         conn.close()
 
-        try:
-            result = subscribe_user2(email=email, months_paid=1)
-            if result.get_json().get("status") != 201:
-                print("Subscription creation failed:", result.get_json())
-        except Exception as e:
-            print(f"An error occurred while creating subscription: {str(e)}")
+        # try:
+        #     result = subscribe_user2(email=email, months_paid=1)
+        #     if result.get_json().get("status") != 201:
+        #         print("Subscription creation failed:", result.get_json())
+        # except Exception as e:
+        #     print(f"An error occurred while creating subscription: {str(e)}")
 
 
         # Send back the token in the response
