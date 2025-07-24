@@ -693,6 +693,7 @@ def get_ridess():
     
 
 connected_users = {}
+rooms = {}
 
 # Event handler for when a user connects
 @socketio.on('connect')
@@ -712,12 +713,12 @@ def handle_register_user(data):
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    # Remove the socket from connected_users based on request.sid
+    # Your existing disconnect logic...
     for email, sockets in list(connected_users.items()):
         if request.sid in sockets:
-            sockets.discard(request.sid)  # Remove the socket ID
+            sockets.discard(request.sid)
             print(f'User {email} disconnected from socket ID {request.sid}')
-            if not sockets:  # If no more sockets for this user, remove from dictionary
+            if not sockets:
                 del connected_users[email]
             # Clean up user's location from the database
             try:
@@ -729,6 +730,16 @@ def handle_disconnect():
             except Exception as e:
                 print(f"Error removing location for {email}: {str(e)}")
             break
+    
+    # Clean up rooms
+    for room_name, participants in list(rooms.items()):
+        if request.sid in participants:
+            participants.discard(request.sid)
+            if not participants:
+                del rooms[room_name]
+            # Notify remaining participants
+            emit('user-left', {'userId': 'unknown'}, room=room_name)
+
 
 @socketio.on("Nothing")
 def nothingSUp():
@@ -1260,58 +1271,130 @@ def handle_answer_call(data):
         print(f'Call answered by {data["to"]}')
 
         
+@socketio.on('join-room')
+def handle_join_room(data):
+    """Handle user joining a room for calling."""
+    try:
+        print(f"Data: {data}")
+        room = data['room']
+        user_id = data['userId']
+        
+        # Initialize room if it doesn't exist
+        if room not in rooms:
+            rooms[room] = set()
+        
+        # Add user to room
+        rooms[room].add(request.sid)
+        join_room(room)  # Flask-SocketIO room functionality
+        
+        print(f'User {user_id} joined room {room}')
+        
+        # Notify other users in the room
+        emit('user-joined', {
+            'userId': user_id,
+            'room': room
+        }, room=room, include_self=False)
+        
+    except Exception as e:
+        print(f"Error in handle_join_room: {e}")
+        emit("error", {"message": str(e)}, to=request.sid)
+
+@socketio.on('leave-room')
+def handle_leave_room(data):
+    """Handle user leaving a room."""
+    try:
+        room = data['room']
+        user_id = data['userId']
+        
+        # Remove user from room
+        if room in rooms:
+            rooms[room].discard(request.sid)
+            if not rooms[room]:  # Remove empty room
+                del rooms[room]
+        
+        leave_room(room)
+        
+        print(f'User {user_id} left room {room}')
+        
+        # Notify other users in the room
+        emit('user-left', {
+            'userId': user_id,
+            'room': room
+        }, room=room)
+        
+    except Exception as e:
+        print(f"Error in handle_leave_room: {e}")
+        emit("error", {"message": str(e)}, to=request.sid)
+
+# Update existing WebRTC handlers to work with rooms
 @socketio.on("offer")
 def handle_offer(data):
-    """Send offer to the recipient."""
+    """Send offer to the room."""
     try:
-        recipient_email = data["to"]  # Email of the recipient
-        if recipient_email in connected_users:
-            sid = next(iter(connected_users.get(recipient_email, [])), None)
-            if sid:
-                socketio.emit("offer", data, to=sid)
-            else:
-                raise ValueError("No valid connection found for the recipient.")
+        room = data.get('room')
+        if room:
+            # Broadcast to room
+            emit("offer", data, room=room, include_self=False)
         else:
-            raise KeyError(f"Recipient with email {recipient_email} not found.")
+            # Fallback to email-based routing (your existing logic)
+            recipient_email = data["to"]
+            if recipient_email in connected_users:
+                sid = next(iter(connected_users.get(recipient_email, [])), None)
+                if sid:
+                    socketio.emit("offer", data, to=sid)
+                else:
+                    raise ValueError("No valid connection found for the recipient.")
+            else:
+                raise KeyError(f"Recipient with email {recipient_email} not found.")
     except Exception as e:
         print(f"Error in handle_offer: {e}")
         socketio.emit("error", {"message": str(e)}, to=request.sid)
 
 @socketio.on("answer")
 def handle_answer(data):
-    """Send answer to the recipient."""
+    """Send answer to the room."""
     try:
-        recipient_email = data["to"]  # Email of the recipient
-        if recipient_email in connected_users:
-            sid = next(iter(connected_users.get(recipient_email, [])), None)
-            if sid:
-                socketio.emit("answer", data, to=sid)
-            else:
-                raise ValueError("No valid connection found for the recipient.")
+        room = data.get('room')
+        if room:
+            # Broadcast to room
+            emit("answer", data, room=room, include_self=False)
         else:
-            raise KeyError(f"Recipient with email {recipient_email} not found.")
+            # Fallback to email-based routing (your existing logic)
+            recipient_email = data["to"]
+            if recipient_email in connected_users:
+                sid = next(iter(connected_users.get(recipient_email, [])), None)
+                if sid:
+                    socketio.emit("answer", data, to=sid)
+                else:
+                    raise ValueError("No valid connection found for the recipient.")
+            else:
+                raise KeyError(f"Recipient with email {recipient_email} not found.")
     except Exception as e:
         print(f"Error in handle_answer: {e}")
         socketio.emit("error", {"message": str(e)}, to=request.sid)
 
 @socketio.on("ice-candidate")
 def handle_ice_candidate(data):
-    """Send ICE candidate to the recipient."""
+    """Send ICE candidate to the room."""
     try:
-        recipient_email = data["to"]  # Email of the recipient
-        if recipient_email in connected_users:
-            sid = next(iter(connected_users.get(recipient_email, [])), None)
-            if sid:
-                socketio.emit("ice-candidate", data, to=sid)
-            else:
-                raise ValueError("No valid connection found for the recipient.")
+        room = data.get('room')
+        if room:
+            # Broadcast to room
+            emit("ice-candidate", data, room=room, include_self=False)
         else:
-            raise KeyError(f"Recipient with email {recipient_email} not found.")
+            # Fallback to email-based routing (your existing logic)
+            recipient_email = data["to"]
+            if recipient_email in connected_users:
+                sid = next(iter(connected_users.get(recipient_email, [])), None)
+                if sid:
+                    socketio.emit("ice-candidate", data, to=sid)
+                else:
+                    raise ValueError("No valid connection found for the recipient.")
+            else:
+                raise KeyError(f"Recipient with email {recipient_email} not found.")
     except Exception as e:
         print(f"Error in handle_ice_candidate: {e}")
         socketio.emit("error", {"message": str(e)}, to=request.sid)
-
-
 
 @socketio.on('callResponse')
 def handle_call_response(data):
