@@ -51,11 +51,11 @@ sms = africastalking.SMS
 
 def get_db_connection():
     connection = pymysql.connect(
-        host=os.getenv("DB_HOST"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        db=os.getenv("DB_NAME"),
-        port=int(os.getenv("DB_PORT")),
+        host="db.pxxl.pro",
+        user="user_4f0d1b7f",
+        password="e654ddd650d97b45f1c7e77f6953c2b1",
+        db="db_5c68dc69",
+        port=51489,
         ssl={'ssl': {'ssl-mode': os.getenv('DB_SSL_MODE')}}
     )
     return connection
