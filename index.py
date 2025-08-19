@@ -19,6 +19,9 @@ from termii_sdk import TermiiSDK
 from extensions.extensions import client
 from vonage import Auth, Vonage
 from vonage_messages.models import Sms
+from werkzeug.security import generate_password_hash
+import random
+from datetime import datetime, timedelta
 
 # Initialize Vonage client
 # Application ID is already defined
@@ -3013,6 +3016,142 @@ def check_trial_eligibility():
 #             'message': f'An error occurred: {str(e)}'
 #         }), 500
 
+@app.route("/forgot-password", methods=["POST"])
+def forgot_password():
+    try:
+        data = request.get_json()
+        email = data.get("email")
+
+        if not email:
+            return jsonify({
+                "status": 400,
+                "message": "Email is required"
+            })
+
+        # Check if user exists
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("SELECT * FROM userauth WHERE email = %s", (email,))
+        user = cur.fetchone()
+        
+        if not user:
+            return jsonify({
+                "status": 404,
+                "message": "User not found"
+            })
+
+        # Generate OTP
+        otp = random.randint(100000, 999999)
+        
+        # Store OTP in database (using existing otp_storage dictionary)
+        otp_storage[email] = {
+            "otp": otp,
+            "timestamp": datetime.now().timestamp(),
+            "attempts": 0
+        }
+
+        # Send OTP via email
+        subject = "Password Reset OTP"
+        html_content = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; text-align: center; padding: 20px;">
+            <h2 style="color: #4CAF50;">Password Reset Request</h2>
+            <p>You have requested to reset your password. Please use the following OTP to verify your identity:</p>
+            <h1 style="color: #333;">{otp}</h1>
+            <p style="font-size: 12px; color: #888;">This OTP is valid for 5 minutes. Do not share it with anyone.</p>
+            <p>If you did not request this password reset, please ignore this email.</p>
+            <p>Thank you,<br>The DropApp Team</p>
+        </body>
+        </html>
+        """
+        
+        msg = Message(subject, recipients=[email])
+        msg.html = html_content
+        mail.send(msg)
+
+        return jsonify({
+            "status": 200,
+            "message": "OTP sent successfully to your email"
+        })
+
+    except Exception as e:
+        print(f"Error in forgot-password: {str(e)}")
+        return jsonify({
+            "status": 500,
+            "message": f"An error occurred: {str(e)}"
+        })
+
+@app.route("/reset-password", methods=["POST"])
+def reset_password():
+    try:
+        data = request.get_json()
+        email = data.get("email")
+        otp = data.get("otp")
+        new_password = data.get("new_password")
+
+        if not all([email, otp, new_password]):
+            return jsonify({
+                "status": 400,
+                "message": "Email, OTP, and new password are required"
+            })
+
+        # Verify OTP
+        stored_otp_data = otp_storage.get(email)
+        if not stored_otp_data:
+            return jsonify({
+                "status": 400,
+                "message": "OTP has expired or was not requested"
+            })
+
+        # Check if OTP is expired (5 minutes validity)
+        if datetime.now().timestamp() - stored_otp_data["timestamp"] > 300:  # 300 seconds = 5 minutes
+            del otp_storage[email]
+            return jsonify({
+                "status": 400,
+                "message": "OTP has expired. Please request a new one"
+            })
+
+        # Verify OTP
+        if str(stored_otp_data["otp"]) != str(otp):
+            stored_otp_data["attempts"] = stored_otp_data.get("attempts", 0) + 1
+            if stored_otp_data["attempts"] >= 3:
+                del otp_storage[email]
+                return jsonify({
+                    "status": 400,
+                    "message": "Too many failed attempts. Please request a new OTP"
+                })
+            return jsonify({
+                "status": 400,
+                "message": "Invalid OTP"
+            })
+
+        # Update password in database
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        hashed_password = generate_password_hash(new_password)
+        cur.execute("UPDATE userauth SET password = %s WHERE email = %s", 
+                   (hashed_password, email))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        # Clear OTP data
+        del otp_storage[email]
+
+        return jsonify({
+            "status": 200,
+            "message": "Password updated successfully"
+        })
+
+    except Exception as e:
+        print(f"Error in reset-password: {str(e)}")
+        return jsonify({
+            "status": 500,
+            "message": f"An error occurred: {str(e)}"
+        })
 
 if __name__ == '__main__':
     try:
