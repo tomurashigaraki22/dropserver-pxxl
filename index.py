@@ -7,7 +7,6 @@ from functions.auth import userSignup, login, verifyEmail, changePassword, get_b
 from functions.riders import haversine, find_closest_riders, endRide, endRide2, get_rider_location_by_email, find_closest_rider_main
 import re
 import africastalking
-import datetime
 import json
 from functions import token04
 from functions.generate_ids import generate_transaction_and_reference_ids
@@ -531,7 +530,7 @@ def calculate_expiration_date(months_paid):
     # Calculate the expiration date based on the number of months paid
     # Convert months_paid to float to handle decimal values
     days = float(months_paid) * 30  # Approximation of days (30 days per month)
-    return datetime.datetime.now() + datetime.timedelta(days=days)
+    return datetime.now()() + datetime.timedelta(days=days)
 
 @app.route('/subscribe', methods=['POST'])
 def subscribe_user():
@@ -614,7 +613,7 @@ def check_subscription_status():
 
     if subscription:
         expires_at = subscription[0]
-        current_time = datetime.datetime.now()
+        current_time = datetime.now()
 
         if expires_at > current_time:
             days_left = (expires_at - current_time).days
@@ -2943,7 +2942,7 @@ def check_trial_eligibility():
 
         created_at = result[0]
         print(f"Created at: {created_at}")
-        current_time = datetime.datetime.now()
+        current_time = datetime.now()()
         days_since_creation = (current_time - created_at).days
         print(f"Days since creation: {days_since_creation}")
 
