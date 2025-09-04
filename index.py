@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_socketio import emit, join_room, leave_room, SocketIO
 from extensions.extensions import get_db_connection, socketio, app, mail, sms
 from flask_mail import Message
-from extensions.db_schemas import database_schemas
+from extensions.db_schemas import database_schemas, create_admin_users_table
 from functions.auth import userSignup, login, verifyEmail, changePassword, get_balance, add_to_balance, driverLogin, driverSignup, checkVerificationStatus, uploadVerificationImages, saveLinksToDB
 from functions.riders import haversine, find_closest_riders, endRide, endRide2, get_rider_location_by_email, find_closest_rider_main
 import re
@@ -73,7 +73,186 @@ def getTokenCall():
             "error": str(e),
             "message": "Failed to generate token"
         }), 500
+
+@app.route('/')
+def index():
+    return "Dropserver is running", 200
+
         
+from flask import request, jsonify
+from werkzeug.security import generate_password_hash, check_password_hash
+
+# ✅ Register route
+@app.route("/admin/register", methods=["POST"])
+def register_admin():
+    try:
+        data = request.get_json()
+        email = data.get("email")
+        password = data.get("password")
+
+        if not email or not password:
+            return jsonify({"status": "error", "message": "Email and password are required"}), 400
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Check if admin already exists
+        cur.execute("SELECT * FROM admin_users WHERE email = %s", (email,))
+        existing = cur.fetchone()
+        if existing:
+            return jsonify({"status": "error", "message": "Admin with this email already exists"}), 400
+
+        # Hash password
+        hashed_pw = generate_password_hash(password)
+
+        # Insert new admin
+        cur.execute("INSERT INTO admin_users (email, password) VALUES (%s, %s)", (email, hashed_pw))
+        conn.commit()
+
+        # Fetch inserted user
+        cur.execute("SELECT id, email, created_at FROM admin_users WHERE email = %s", (email,))
+        new_admin = cur.fetchone()
+
+        cur.close()
+        conn.close()
+
+        return jsonify({"status": "success", "user": new_admin}), 201
+
+    except Exception as e:
+        print(f"❌ Exception in register_admin: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ✅ Login route
+@app.route("/admin/login", methods=["POST"])
+def login_admin():
+    try:
+        data = request.get_json()
+        email = data.get("email")
+        password = data.get("password")
+
+        if not email or not password:
+            return jsonify({"status": "error", "message": "Email and password are required"}), 400
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Find admin
+        cur.execute("SELECT * FROM admin_users WHERE email = %s", (email,))
+        admin = cur.fetchone()   # ✅ fetch full row tuple
+
+        cur.close()
+        conn.close()
+
+        if not admin:
+            return jsonify({"status": "error", "message": "Invalid email or password"}), 401
+
+        # Verify password (index 2 is password)
+        if not check_password_hash(admin[2], password):
+            return jsonify({"status": "error", "message": "Invalid email or password"}), 401
+
+        # Return only safe details
+        user_data = {
+            "id": admin[0],         # id
+            "email": admin[1],      # email
+            "created_at": admin[3]  # created_at
+        }
+
+        return jsonify({"status": "success", "user": user_data}), 200
+
+    except Exception as e:
+        print(f"❌ Exception in login_admin: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ✅ Fetch all admins
+@app.route("/admin/list", methods=["GET"])
+def list_admins():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id, email, created_at FROM admin_users ORDER BY created_at DESC")
+        admins = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        # Convert tuples → dict list
+        admin_list = []
+        for row in admins:
+            admin_list.append({
+                "id": row[0],
+                "email": row[1],
+                "created_at": row[2]
+            })
+
+        return jsonify({"status": "success", "admins": admin_list}), 200
+
+    except Exception as e:
+        print(f"❌ Exception in list_admins: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/admin/delete/<int:admin_id>", methods=["DELETE"])
+def delete_admin(admin_id):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Prevent deleting all admins (keep at least 1)
+        cur.execute("SELECT COUNT(*) FROM admin_users")
+        count = cur.fetchone()[0]
+        if count <= 1:
+            cur.close()
+            conn.close()
+            return jsonify({"status": "error", "message": "At least one admin must remain"}), 400
+
+        # Delete admin
+        cur.execute("DELETE FROM admin_users WHERE id = %s", (admin_id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({"status": "success", "message": "Admin deleted successfully"}), 200
+
+    except Exception as e:
+        print(f"❌ Exception in delete_admin: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+        
+@app.route("/setup-admin", methods=["GET"])
+def setupAdmin():
+    try:
+        # ✅ Create the table first
+        create_admin_users_table()
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # ✅ Default admins
+        default_admins = [
+            ("devtomiwa9@gmail.com", "Pityboy@22"),
+            ("droptwinkkles@gmail.com", "twinkklesdrop")
+        ]
+
+        for email, password in default_admins:
+            cur.execute("SELECT * FROM admin_users WHERE email = %s", (email,))
+            existing = cur.fetchone()
+
+            if not existing:
+                hashed_pw = generate_password_hash(password)
+                cur.execute("INSERT INTO admin_users (email, password) VALUES (%s, %s)", (email, hashed_pw))
+                print(f"✅ Added default admin: {email}")
+            else:
+                print(f"ℹ️ Admin already exists: {email}")
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({"status": "success", "message": "Admin table created and default admins added."}), 200
+
+    except Exception as e:
+        print(f"❌ Exception in setupAdmin: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500    
 
 @app.route("/get_push_token", methods=["POST"])
 def getPushTokenNow():
