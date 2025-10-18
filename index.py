@@ -303,6 +303,13 @@ def sendNotificationNow():
         sound = data.get("sound", "default")
         priority = data.get("priority", "high")
         channel_id = data.get("channel_id", "custom")
+        
+        # Get metadata for handling notification clicks
+        metadata = data.get("data", {})  # Custom data/metadata
+        notification_type = data.get("type", "general")  # Type of notification
+        action = data.get("action", None)  # Action to perform when clicked
+        screen = data.get("screen", None)  # Screen to navigate to
+        params = data.get("params", {})  # Additional parameters
 
         # Validate input
         if not email:
@@ -331,6 +338,21 @@ def sendNotificationNow():
         cur.close()
         conn.close()
 
+        # Build the data payload for the notification
+        notification_data = {
+            "type": notification_type,
+            "timestamp": int(time.time()),
+            **metadata  # Include any custom metadata
+        }
+        
+        # Add optional fields if provided
+        if action:
+            notification_data["action"] = action
+        if screen:
+            notification_data["screen"] = screen
+        if params:
+            notification_data["params"] = params
+
         # Notification payload
         notification_payload = {
             "to": expo_push_token,
@@ -339,6 +361,7 @@ def sendNotificationNow():
             "sound": sound,
             "priority": priority,
             "channelId": channel_id,
+            "data": notification_data,  # Include metadata for app handling
         }
 
         # Send the notification
@@ -708,8 +731,9 @@ def endTheRide2():
 def calculate_expiration_date(months_paid):
     # Calculate the expiration date based on the number of months paid
     # Convert months_paid to float to handle decimal values
+    import datetime
     days = float(months_paid) * 30  # Approximation of days (30 days per month)
-    return datetime.now()() + datetime.timedelta(days=days)
+    return datetime.datetime.now() + datetime.timedelta(days=days)
 
 @app.route('/subscribe', methods=['POST'])
 def subscribe_user():
@@ -3121,7 +3145,8 @@ def check_trial_eligibility():
 
         created_at = result[0]
         print(f"Created at: {created_at}")
-        current_time = datetime.now()()
+        from datetime import datetime
+        current_time = datetime.now()
         days_since_creation = (current_time - created_at).days
         print(f"Days since creation: {days_since_creation}")
 
