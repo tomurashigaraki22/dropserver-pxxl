@@ -206,10 +206,11 @@ def find_closest_riders(user_location, user_email, rejected_riders, choice):
 
     # Iterate through the list of available riders (from the DB result)
     for rider in available_riders:
-        if rider['user_type'] == 'driver' and rider['email'] not in rejected_riders and rider['choice'] == choice:
+        print(f"Rider :: {rider['user_type']} {rider['email']} {rejected_riders} {rider['choice']}")
+        if rider['user_type'] == 'driver' and rider['email'] not in rejected_riders:
             rider_location = (rider['latitude'], rider['longitude'])
             distance = haversine((user_location['latitude'], user_location['longitude']), rider_location)
-
+            print(f"Rider Loction: {rider_location}, and my choice : {choice}")
             # Append rider with their distance to the list
             riders_with_distance.append({
                 'email': rider['email'],
@@ -220,7 +221,7 @@ def find_closest_riders(user_location, user_email, rejected_riders, choice):
 
     # Sort riders by distance from the user (closest to farthest)
     sorted_riders = sorted(riders_with_distance, key=lambda x: x['distance'])
-
+    print(f"Sorted RIders: {sorted_riders}")
     return sorted_riders
 
 

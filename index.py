@@ -1416,56 +1416,86 @@ def readMessageNow(data):
 @socketio.on('initiateCall')
 def handle_initiate_call(data):
     try:
-        # Extract required data
         print("GOT HERE")
-        calling = data.get('calling')
-        channel_name = data.get("channel_name")
-        caller = data.get("caller")
+
+        # Extract required data
+        calling = data.get('calling')          # The person being called
+        channel_name = data.get("channel_name")  # Room ID
+        caller = data.get("caller")            # The person initiating the call
         callId = data.get("callId")
         whoCalled = data.get("whoCalled")
 
-
-        # Check if necessary data is provided
-        if not calling or not caller or not callId:
+        # Validate required fields
+        if not calling or not caller or not callId or not channel_name:
             print("Missing required fields in 'initiateCall' data.")
             return {"status": "error", "message": "Missing required fields"}, 400
 
-        # Retrieve the receiver's session IDs
+        # Retrieve receiver's session IDs
         receiver_sids = connected_users.get(calling)
-        
+        caller_sids = connected_users.get(caller)
+
         if not receiver_sids:
             print(f"No active session found for user: {calling}")
             return {"status": "error", "message": "Receiver not connected"}, 404
+        if not caller_sids:
+            print(f"No active session found for caller: {caller}")
+            return {"status": "error", "message": "Caller not connected"}, 404
 
-        # Emit the incoming call event to each session ID of the receiver
-        sid = next(iter(receiver_sids))
+        receiver_sid = next(iter(receiver_sids))
+        caller_sid = next(iter(caller_sids))
 
-        if whoCalled == "driver":
-            call_url = f"https://call-rn.vercel.app/?userId={caller}&driverId={calling}&initiator=false"
-        else:
-            call_url = f"https://call-rn.vercel.app/?userId={caller}&driverId={calling}&initiator=false"
+        # Fetch LiveKit token
+        token_url = f"https://call-token-livekit.vercel.app/token?roomName={channel_name}&participantName={caller}"
+        print(f"Fetching token from: {token_url}")
 
+        token_response = requests.get(token_url)
+        if token_response.status_code != 200:
+            print("Failed to fetch token from LiveKit server.")
+            return {"status": "error", "message": "Failed to fetch token"}, 500
+
+        token_data = token_response.json()
+        livekit_token = token_data.get("token")
+
+        if not livekit_token:
+            print("Token not found in LiveKit response.")
+            return {"status": "error", "message": "Token missing in response"}, 500
+
+        # Construct call URL
+        call_url = f"https://call-rn.vercel.app/?userId={caller}&driverId={calling}&initiator=false"
+
+        # Emit incoming call to receiver
         socketio.emit(
             "incomingCall",
             {
                 "callId": callId,
                 "caller": caller,
                 "channel_name": channel_name,
-                "callUrl": call_url
+                "callUrl": call_url,
+                "token": livekit_token
             },
-            to=sid  # Specify the target client
+            to=receiver_sid
         )
-        print(f"Incoming call sent to {calling} (session ID: {sid})")
 
-        # Success response after all emits are sent
-        return {"status": "success", "message": "Call initiated"}, 200
+        # Emit confirmation + token to caller
+        socketio.emit(
+            "callInitiated",
+            {
+                "callId": callId,
+                "receiver": calling,
+                "channel_name": channel_name,
+                "callUrl": call_url,
+                "token": livekit_token
+            },
+            to=caller_sid
+        )
+
+        print(f"Incoming call sent to {calling} and confirmation sent to {caller}")
+
+        return {"status": "success", "message": "Call initiated", "token": livekit_token}, 200
 
     except Exception as e:
-        # Log and return in case of any exception
         print(f"Error in 'handle_initiate_call': {e}")
         return {"status": "error", "message": str(e)}, 500
-
-
 
 @socketio.on('answerCall')
 def handle_answer_call(data):
@@ -1480,9 +1510,33 @@ def handle_answer_call(data):
 def handle_join_room(data):
     """Handle user joining a room for calling."""
     try:
-        print(f"Data: {data}")
-        room = data['room']
-        user_id = data['userId']
+        print(f"Data received: {data}")
+        print(f"Data type: {type(data)}")
+        
+        # Handle case where data might be a string (parse it as JSON)
+        if isinstance(data, str):
+            try:
+                import json
+                data = json.loads(data)
+                print(f"Parsed data: {data}")
+            except json.JSONDecodeError:
+                print(f"Failed to parse data as JSON: {data}")
+                emit("error", {"message": "Invalid data format"}, to=request.sid)
+                return
+        
+        # Ensure data is a dictionary
+        if not isinstance(data, dict):
+            print(f"Data is not a dictionary: {type(data)}")
+            emit("error", {"message": "Data must be an object"}, to=request.sid)
+            return
+            
+        room = data.get('room')
+        user_id = data.get('userId')
+        
+        if not room or not user_id:
+            print(f"Missing required fields - room: {room}, userId: {user_id}")
+            emit("error", {"message": "Room and userId are required"}, to=request.sid)
+            return
         
         # Initialize room if it doesn't exist
         if room not in rooms:
